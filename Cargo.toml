@@ -1,0 +1,9 @@
+[package]
+name = "calico"
+version = "0.1.0"
+authors = ["Adam Richardson <richardson.adams@gmail.com>"]
+edition = "2018"
+
+[dev_dependencies]
+quickcheck = "1"
+quickcheck_macros = "1"
