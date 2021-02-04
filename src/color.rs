@@ -23,12 +23,12 @@ impl Color {
         Color::new(to_float(r), to_float(g), to_float(b))
     }
 
-    pub fn to_bytes(self) -> (u8, u8, u8) {
+    pub fn to_bytes(self) -> [u8; 3] {
         fn to_byte(x: Float) -> u8 {
             let clamped = Float::max(Float::min(x, 1.0), 0.0) * 255.0;
             Float::round(clamped) as u8
         }
-        (to_byte(self.r), to_byte(self.g), to_byte(self.b))
+        [to_byte(self.r), to_byte(self.g), to_byte(self.b)]
     }
 
     pub fn blend(self, rhs: Color) -> Color {
@@ -149,7 +149,7 @@ mod tests {
 
     #[quickcheck]
     fn bytes_roundtrip(r: u8, g: u8, b: u8) -> bool {
-        Color::from_bytes(r, g, b).to_bytes() == (r, g, b)
+        Color::from_bytes(r, g, b).to_bytes() == [r, g, b]
     }
 
     #[quickcheck]
@@ -163,7 +163,7 @@ mod tests {
                 x2 == (255.0 * x.round()) as u8
             }
         }
-        let (r2, g2, b2) = Color::new(r, g, b).to_bytes();
+        let [r2, g2, b2] = Color::new(r, g, b).to_bytes();
         check(r, r2) && check(g, g2) && check(b, b2)
     }
 
