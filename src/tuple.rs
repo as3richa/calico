@@ -376,6 +376,11 @@ mod tuple {
         }
 
         #[quickcheck]
+        fn cross_distributive(Vector(u): Vector, Vector(v): Vector, Vector(k): Vector) -> bool {
+            u.cross(v + k).eq_approx(u.cross(v) + u.cross(k))
+        }
+
+        #[quickcheck]
         fn simulate_projectile() -> bool {
             let initial_pos = Tuple::point(0.0, 100.0, 0.0);
             let initial_vel = Tuple::vector(10.0, 0.0, 0.0);
