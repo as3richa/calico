@@ -8,7 +8,7 @@ extern crate quickcheck_macros;
 type Float = f32;
 
 #[cfg(test)]
-const EPSILON: Float = 1e-5;
+const EPSILON: Float = 1e-4;
 
 #[cfg(test)]
 fn eq_approx(x: Float, y: Float) -> bool {
@@ -21,4 +21,9 @@ fn eq_approx_eps(x: Float, y: Float, epsilon: Float) -> bool {
         || Float::abs(x - y) / Float::max(Float::abs(x), Float::abs(y)) < epsilon
 }
 
+mod canvas;
+mod color;
 mod tuple;
+
+#[cfg(test)]
+mod finite;
