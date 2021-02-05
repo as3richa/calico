@@ -44,11 +44,41 @@ impl Canvas {
 
     pub fn write_ppm<W: io::Write>(&self, w: &mut W) -> Result<(), io::Error> {
         write!(w, "P3\n{} {}\n255\n", self.width, self.height)?;
-        for (i, u) in self.iter().enumerate() {
-            let [r, g, b] = u.to_bytes();
-            let space = if i == 0 { "" } else { " " };
-            write!(w, "{}{} {} {}", space, r, g, b)?;
+        for y in 0..self.height {
+            let mut line_len = 0;
+
+            let mut write = |byte: u8| -> Result<(), io::Error> {
+                let len = if byte < 10 {
+                    1
+                } else if byte < 100 {
+                    2
+                } else {
+                    3
+                };
+
+                if line_len + 1 + len > 70 {
+                    write!(w, "\n{}", byte)?;
+                    line_len = len;
+                } else if line_len == 0 {
+                    write!(w, "{}", byte)?;
+                    line_len = len;
+                } else {
+                    write!(w, " {}", byte)?;
+                    line_len += len + 1;
+                }
+
+                Ok(())
+            };
+
+            for x in 0..self.width {
+                let [r, g, b] = self.data[self.index(x, y)].to_bytes();
+                write(r)?;
+                write(g)?;
+                write(b)?;
+            }
+            write!(w, "\n")?;
         }
+
         write!(w, "\n")?;
         Ok(())
     }
@@ -140,20 +170,30 @@ mod tests {
 
         let expected_data = {
             let i = y * width + x;
-            "0 ".repeat(3 * i)
-                + {
-                    let [r, g, b] = u.to_bytes();
-                    &format!("{} {} {}", r, g, b)
-                }
-                + &" 0".repeat(3 * (width * height - i - 1))
+            iter::repeat(0u8)
+                .take(3 * i)
+                .chain(u.to_bytes().iter().map(|&x| x))
+                .chain(iter::repeat(0).take(3 * (width * height - i - 1)))
+                .collect::<Vec<u8>>()
         };
 
-        let mut lines = buf[..].lines();
+        let lines = buf[..]
+            .lines()
+            .map(|line| line.unwrap())
+            .collect::<Vec<String>>();
 
-        lines.next().unwrap().unwrap() == "P3"
-            && lines.next().unwrap().unwrap() == format!("{} {}", width, height)
-            && lines.next().unwrap().unwrap() == "255"
-            && lines.next().unwrap().unwrap() == expected_data
-            && *buf.last().unwrap() == 0x0a
+        let data = || {
+            lines[3..lines.len() - 1]
+                .iter()
+                .flat_map(|line| line.split(' ').map(|num| num.parse::<u8>().unwrap()))
+                .collect::<Vec<u8>>()
+        };
+
+        lines[0] == "P3"
+            && lines[1] == format!("{} {}", width, height)
+            && lines[2] == "255"
+            && data() == expected_data
+            && lines[lines.len() - 1] == ""
+            && lines.iter().all(|line| line.len() <= 70)
     }
 }
