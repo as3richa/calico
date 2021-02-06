@@ -101,7 +101,7 @@ mod tests {
     struct Size(usize);
 
     impl Size {
-        const MAX_SIZE: usize = 128;
+        const MAX_SIZE: usize = 64;
     }
 
     impl Arbitrary for Size {

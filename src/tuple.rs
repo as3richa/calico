@@ -5,15 +5,15 @@ use std::ops;
 use crate::{eq_approx_eps, EPSILON};
 
 #[derive(Clone, Copy, Debug)]
-struct Tuple {
-    x: Float,
-    y: Float,
-    z: Float,
-    w: Float,
+pub struct Tuple {
+    pub x: Float,
+    pub y: Float,
+    pub z: Float,
+    pub w: Float,
 }
 
 impl Tuple {
-    fn new(x: Float, y: Float, z: Float, w: Float) -> Tuple {
+    pub fn new(x: Float, y: Float, z: Float, w: Float) -> Tuple {
         Tuple {
             x: x,
             y: y,
@@ -21,31 +21,32 @@ impl Tuple {
             w: w,
         }
     }
-    fn point(x: Float, y: Float, z: Float) -> Tuple {
+
+    pub fn point(x: Float, y: Float, z: Float) -> Tuple {
         Tuple::new(x, y, z, 1.0)
     }
 
-    fn vector(x: Float, y: Float, z: Float) -> Tuple {
+    pub fn vector(x: Float, y: Float, z: Float) -> Tuple {
         Tuple::new(x, y, z, 0.0)
     }
 
-    fn dot(self, rhs: Tuple) -> Float {
+    pub fn dot(self, rhs: Tuple) -> Float {
         self.x * rhs.x + self.y * rhs.y + self.z * rhs.z + self.w * rhs.w
     }
 
-    fn norm_sq(self) -> Float {
+    pub fn norm_sq(self) -> Float {
         self.dot(self)
     }
 
-    fn norm(self) -> Float {
+    pub fn norm(self) -> Float {
         Float::sqrt(self.norm_sq())
     }
 
-    fn normalize(self) -> Tuple {
+    pub fn normalize(self) -> Tuple {
         self / self.norm()
     }
 
-    fn cross(self, rhs: Tuple) -> Tuple {
+    pub fn cross(self, rhs: Tuple) -> Tuple {
         Tuple::vector(
             self.y * rhs.z - self.z * rhs.y,
             self.z * rhs.x - self.x * rhs.z,
@@ -53,13 +54,17 @@ impl Tuple {
         )
     }
 
+    pub fn to_array(self) -> [Float; 4] {
+        [self.x, self.y, self.z, self.w]
+    }
+
     #[cfg(test)]
-    fn eq_approx(self, rhs: Tuple) -> bool {
+    pub fn eq_approx(self, rhs: Tuple) -> bool {
         self.eq_approx_eps(rhs, EPSILON)
     }
 
     #[cfg(test)]
-    fn eq_approx_eps(self, rhs: Tuple, epsilon: Float) -> bool {
+    pub fn eq_approx_eps(self, rhs: Tuple, epsilon: Float) -> bool {
         eq_approx_eps(self.x, rhs.x, epsilon)
             && eq_approx_eps(self.y, rhs.y, epsilon)
             && eq_approx_eps(self.z, rhs.z, epsilon)
@@ -335,7 +340,13 @@ mod tests {
 
     #[quickcheck]
     fn cross_distributive(Vector(u): Vector, Vector(v): Vector, Vector(q): Vector) -> bool {
-        u.cross(v + q).eq_approx(u.cross(v) + u.cross(q))
+        u.cross(v + q).eq_approx_eps(u.cross(v) + u.cross(q), 1e-2)
+            && (u + v).cross(q).eq_approx_eps(u.cross(q) + v.cross(q), 1e-2)
+    }
+
+    #[quickcheck]
+    fn cross_linear(Vector(u): Vector, Vector(v): Vector, Finite(x): Finite) -> bool {
+        (u * x).cross(v).eq_approx_eps(u.cross(v) * x, 1e-3) && u.cross(v * x).eq_approx_eps(u.cross(v) * x, 1e-2)
     }
 
     #[quickcheck]

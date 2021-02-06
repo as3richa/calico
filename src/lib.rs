@@ -5,7 +5,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-type Float = f32;
+pub type Float = f32;
 
 #[cfg(test)]
 const EPSILON: Float = 1e-4;
@@ -23,7 +23,12 @@ fn eq_approx_eps(x: Float, y: Float, epsilon: Float) -> bool {
 
 mod canvas;
 mod color;
+mod matrix;
 mod tuple;
 
 #[cfg(test)]
 mod finite;
+
+pub use canvas::Canvas;
+pub use color::Color;
+pub use tuple::Tuple;
