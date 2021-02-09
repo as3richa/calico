@@ -2,7 +2,7 @@ use crate::{Float, Tuple};
 use std::ops;
 
 #[cfg(test)]
-use crate::{eq_approx_eps, EPSILON};
+use crate::eq_approx;
 
 #[derive(Clone, Debug)]
 pub struct Matrix([[Float; 4]; 4]);
@@ -17,6 +17,63 @@ impl Matrix {
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
             [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    pub fn translation(x: Float, y: Float, z: Float) -> Matrix {
+        Matrix([
+            [1.0, 0.0, 0.0, x],
+            [0.0, 1.0, 0.0, y],
+            [0.0, 0.0, 1.0, z],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    pub fn scaling(x: Float, y: Float, z: Float) -> Matrix {
+        Matrix([
+            [x, 0.0, 0.0, 0.0],
+            [0.0, y, 0.0, 0.0],
+            [0.0, 0.0, z, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    pub fn rotation_x(angle: Float) -> Matrix {
+        Matrix::rotation(angle, 1, 2)
+    }
+
+    pub fn rotation_y(angle: Float) -> Matrix {
+        Matrix::rotation(angle, 2, 0)
+    }
+
+    pub fn rotation_z(angle: Float) -> Matrix {
+        Matrix::rotation(angle, 0, 1)
+    }
+
+    fn rotation(angle: Float, right: usize, up: usize) -> Matrix {
+        let cos = Float::cos(angle);
+        let sin = Float::sin(angle);
+
+        let mut xs = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        xs[right][right] = cos;
+        xs[right][up] = -sin;
+        xs[up][up] = cos;
+        xs[up][right] = sin;
+
+        Matrix(xs)
+    }
+
+    pub fn shearing(xy: Float, xz: Float, yx: Float, yz: Float, zx: Float, zy: Float) -> Matrix {
+        Matrix([
+            [1.0, xy, xz, 0.0],
+            [yx, 1.0, yz, 0.0],
+            [zx, zy, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ])
     }
@@ -59,7 +116,7 @@ impl Matrix {
             + self[0][3] * self.cofactor(0, 3)
     }
 
-    pub fn inverse(&mut self) -> bool {
+    pub fn invert(&mut self) -> bool {
         let det = self.determinant();
 
         if det.abs() < 1e-3 {
@@ -125,14 +182,70 @@ impl Matrix {
         }
     }
 
-    #[cfg(test)]
-    fn eq_approx(&self, rhs: &Matrix) -> bool {
-        self.eq_approx_eps(rhs, EPSILON)
+    pub fn translate(&mut self, x: Float, y: Float, z: Float) {
+        self[0][3] += x;
+        self[1][3] += y;
+        self[2][3] += z;
+    }
+
+    pub fn scale(&mut self, x: Float, y: Float, z: Float) {
+        let mut scale_row = |i, x| {
+            for j in 0..4 {
+                self[i][j] *= x;
+            }
+        };
+        scale_row(0, x);
+        scale_row(1, y);
+        scale_row(2, z);
+    }
+
+    pub fn rotate_x(&mut self, angle: Float) {
+        self.rotate(angle, 1, 2);
+    }
+
+    pub fn rotate_y(&mut self, angle: Float) {
+        self.rotate(angle, 2, 0);
+    }
+
+    pub fn rotate_z(&mut self, angle: Float) {
+        self.rotate(angle, 0, 1);
+    }
+
+    fn rotate(&mut self, angle: Float, right: usize, up: usize) {
+        let cos = Float::cos(angle);
+        let sin = Float::sin(angle);
+
+        let row = self[right];
+
+        for j in 0..4 {
+            self[right][j] = cos * row[j] - sin * self[up][j];
+        }
+
+        for j in 0..4 {
+            self[up][j] = sin * row[j] + cos * self[up][j];
+        }
+    }
+
+    pub fn shear(&mut self, xy: Float, xz: Float, yx: Float, yz: Float, zx: Float, zy: Float) {
+        let row0 = self[0];
+        let row1 = self[1];
+
+        for j in 0..4 {
+            self[0][j] += xy * row1[j] + xz * self[2][j];
+        }
+
+        for j in 0..4 {
+            self[1][j] += yx * row0[j] + yz * self[2][j];
+        }
+
+        for j in 0..4 {
+            self[2][j] += zx * row0[j] + zy * row1[j];
+        }
     }
 
     #[cfg(test)]
-    fn eq_approx_eps(&self, rhs: &Matrix, epsilon: Float) -> bool {
-        (0..4).all(|i| (0..4).all(|j| eq_approx_eps(self[i][j], rhs[i][j], epsilon)))
+    fn eq_approx(&self, rhs: &Matrix) -> bool {
+        (0..4).all(|i| (0..4).all(|j| eq_approx(self[i][j], rhs[i][j])))
     }
 }
 
@@ -177,12 +290,14 @@ impl ops::IndexMut<usize> for Matrix {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::Matrix;
     use crate::finite::Finite;
+    use crate::tuple::tests::{Point, Vector};
     use crate::tuple::Tuple;
-    use crate::{eq_approx, eq_approx_eps, Float};
+    use crate::{consts, eq_approx, eq_approx_eps, Float};
     use quickcheck::TestResult;
     use quickcheck::{Arbitrary, Gen};
 
@@ -243,6 +358,17 @@ mod tests {
                     return StableMatrix(m);
                 }
             }
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct HomogenousMatrix(Matrix);
+
+    impl Arbitrary for HomogenousMatrix {
+        fn arbitrary(gen: &mut Gen) -> HomogenousMatrix {
+            let mut m: Matrix = Arbitrary::arbitrary(gen);
+            m[3] = [0.0, 0.0, 0.0, 1.0];
+            HomogenousMatrix(m)
         }
     }
 
@@ -313,13 +439,6 @@ mod tests {
     }
 
     #[quickcheck]
-    fn transpose_identity() -> bool {
-        let mut m = Matrix::identity();
-        m.transpose();
-        m.eq_approx(&Matrix::identity())
-    }
-
-    #[quickcheck]
     fn transpose_involutive(m: Matrix) -> bool {
         let mut m2 = m.clone();
         m2.transpose();
@@ -341,16 +460,6 @@ mod tests {
     #[quickcheck]
     fn mul_tuple_identity(u: Tuple) -> bool {
         (&Matrix::identity() * u).eq_approx(u)
-    }
-
-    #[quickcheck]
-    fn mul_tuple_distributive(m: Matrix, u: Tuple, v: Tuple) -> bool {
-        (&m * (u + v)).eq_approx_eps((&m * u) + (&m * v), 1e-2)
-    }
-
-    #[quickcheck]
-    fn mul_tuple_linear(m: Matrix, u: Tuple, Finite(x): Finite) -> bool {
-        (&m * (u * x)).eq_approx_eps((&m * u) * x, 1e-2)
     }
 
     #[quickcheck]
@@ -386,34 +495,18 @@ mod tests {
     fn determinant_transpose(StableMatrix(m): StableMatrix) -> bool {
         let mut m2 = m.clone();
         m2.transpose();
-        println!("{} {}", m.determinant(), m2.determinant());
         eq_approx_eps(m.determinant(), m2.determinant(), 1e-2)
     }
 
     #[quickcheck]
-    fn inverse(StableMatrix(m): StableMatrix) -> bool {
-        let mut m2 = m.clone();
-
-        if m2.inverse() {
-            let mut m3 = m.clone();
-            m3.mul(&m2);
-            m2.mul(&m);
-            println!("{:?} {:?}", m2, m3);
-            m2.eq_approx_eps(&Matrix::identity(), 0.1) && m3.eq_approx_eps(&Matrix::identity(), 0.1)
-        } else {
-            m.eq_approx(&m2) && eq_approx(m.determinant(), 0.0)
-        }
-    }
-
-    #[quickcheck]
-    fn inverse_examples() -> bool {
+    fn invert() -> bool {
         let mut m = Matrix::new([
             [-5.0, 2.0, 6.0, -8.0],
             [1.0, -5.0, 1.0, 8.0],
             [7.0, 7.0, -6.0, -7.0],
             [1.0, -3.0, 7.0, 4.0],
         ]);
-        m.inverse();
+        m.invert();
 
         let m2 = Matrix::new([
             [0.21804511, 0.45112782, 0.2406015, -0.04511278],
@@ -428,7 +521,7 @@ mod tests {
             [-6.0, 0.0, 9.0, 6.0],
             [-3.0, 0.0, -9.0, -4.0],
         ]);
-        m3.inverse();
+        m3.invert();
 
         let m4 = Matrix::new([
             [-0.15384615, -0.15384615, -0.28205128, -0.53846154],
@@ -443,7 +536,7 @@ mod tests {
             [-4.0, 9.0, 6.0, 4.0],
             [-7.0, 6.0, 6.0, 2.0],
         ]);
-        m5.inverse();
+        m5.invert();
 
         let m6 = Matrix::new([
             [-0.04074074, -0.07777778, 0.14444444, -0.22222222],
@@ -453,7 +546,7 @@ mod tests {
         ]);
 
         let mut m7 = Matrix::identity();
-        m7.inverse();
+        m7.invert();
 
         m.eq_approx(&m2)
             && m3.eq_approx(&m4)
@@ -465,34 +558,239 @@ mod tests {
     fn inverse_transpose(StableMatrix(m): StableMatrix) -> bool {
         let mut m2 = m.clone();
         m2.transpose();
-        let m2_inverted = m2.inverse();
+        let m2_inverted = m2.invert();
 
         let mut m3 = m.clone();
-        let m3_inverted = m3.inverse();
+        let m3_inverted = m3.invert();
         m3.transpose();
 
         m2_inverted == m3_inverted && m2.eq_approx_eps(&m3, 0.1)
     }
 
     #[quickcheck]
-    fn example() -> bool {
-        let m = Matrix::new([
-            [-34.38463, -0.0, 7.0404973, -87.125336],
-            [-0.0, -8.659339, -43.700603, -3.41601],
-            [1.8594441, 46.295227, -0.0, -0.0],
-            [0.0, 78.713684, -13.892131, -9.44291],
-        ]);
+    fn translation(
+        Finite(x): Finite,
+        Finite(y): Finite,
+        Finite(z): Finite,
+        Vector(u): Vector,
+        Point(p): Point,
+    ) -> bool {
+        let m = Matrix::translation(x, y, z);
+        (&m * u).eq_approx(u) && (&m * p).eq_approx(p + Tuple::vector(x, y, z))
+    }
 
+    #[quickcheck]
+    fn translation_invert(Finite(x): Finite, Finite(y): Finite, Finite(z): Finite) -> bool {
+        let mut m = Matrix::translation(x, y, z);
+        m.invert() && m.eq_approx(&Matrix::translation(-x, -y, -z))
+    }
+
+    #[quickcheck]
+    fn translate(
+        m: Matrix,
+        Finite(x): Finite,
+        Finite(y): Finite,
+        Finite(z): Finite,
+        Vector(u): Vector,
+        Point(p): Point,
+    ) -> bool {
         let mut m2 = m.clone();
-        m2.transpose();
-        let m2_inverted = m2.inverse();
+        m2.translate(x, y, z);
+        (&m2 * u).eq_approx(&m * u) && (&m2 * p).eq_approx(&m * p + Tuple::vector(x, y, z))
+    }
 
-        let mut m3 = m.clone();
-        let m3_inverted = m3.inverse();
-        m3.transpose();
+    #[quickcheck]
+    fn translate_translation(
+        HomogenousMatrix(m): HomogenousMatrix,
+        Finite(x): Finite,
+        Finite(y): Finite,
+        Finite(z): Finite,
+    ) -> bool {
+        let mut m2 = m.clone();
+        m2.translate(x, y, z);
 
-        println!("{:?} {:?}", m2, m3);
+        let mut m3 = Matrix::translation(x, y, z);
+        m3.mul(&m);
 
-        m2_inverted == m3_inverted && m2.eq_approx_eps(&m3, 0.1)
+        m2.eq_approx(&m3)
+    }
+
+    fn scale_tuple(u: Tuple, x: Float, y: Float, z: Float) -> Tuple {
+        Tuple::new(u.x * x, u.y * y, u.z * z, u.w)
+    }
+
+    #[quickcheck]
+    fn scaling(
+        Finite(x): Finite,
+        Finite(y): Finite,
+        Finite(z): Finite,
+        Vector(u): Vector,
+        Point(p): Point,
+    ) -> bool {
+        let m = Matrix::scaling(x, y, z);
+        (&m * u).eq_approx(scale_tuple(u, x, y, z)) && (&m * p).eq_approx(scale_tuple(p, x, y, z))
+    }
+
+    #[quickcheck]
+    fn scaling_invert(Finite(x): Finite, Finite(y): Finite, Finite(z): Finite) -> bool {
+        let mut m = Matrix::scaling(x, y, z);
+        if !m.invert() {
+            eq_approx(x * y * z, 0.0)
+        } else {
+            m.eq_approx(&Matrix::scaling(1.0 / x, 1.0 / y, 1.0 / z))
+        }
+    }
+
+    #[quickcheck]
+    fn scale(
+        StableMatrix(m): StableMatrix,
+        Finite(x): Finite,
+        Finite(y): Finite,
+        Finite(z): Finite,
+        u: Tuple,
+    ) -> bool {
+        let mut m2 = m.clone();
+        m2.scale(x, y, z);
+        (&m2 * u).eq_approx_eps(scale_tuple(&m * u, x, y, z), 1e-2)
+    }
+
+    #[quickcheck]
+    fn scale_scaling(
+        HomogenousMatrix(m): HomogenousMatrix,
+        Finite(x): Finite,
+        Finite(y): Finite,
+        Finite(z): Finite,
+    ) -> bool {
+        let mut m2 = m.clone();
+        m2.scale(x, y, z);
+
+        let mut m3 = Matrix::scaling(x, y, z);
+        m3.mul(&m);
+
+        m2.eq_approx(&m3)
+    }
+
+    macro_rules! rotation_test {
+        ($method:ident, $quarter:expr, $half:expr, $three_quarter:expr) => {
+            #[quickcheck]
+            fn $method(u: Tuple) -> TestResult {
+                let ratio = Float::max(Float::max(u.x.abs(), u.y.abs()), u.z.abs())
+                    / Float::min(Float::min(u.x.abs(), u.y.abs()), u.z.abs());
+                if ratio > 1e3 {
+                    return TestResult::discard();
+                }
+                let none = Matrix::$method(0.0);
+                let quarter = Matrix::$method(consts::FRAC_PI_2);
+                let half = Matrix::$method(consts::PI);
+                let three_quarter = Matrix::$method(3.0 * consts::FRAC_PI_2);
+                let full = Matrix::$method(2.0 * consts::PI);
+                TestResult::from_bool(
+                    (&none * u).eq_approx_eps(u, 1e-2)
+                        && (&quarter * u).eq_approx_eps($quarter, 1e-2)
+                        && (&half * u).eq_approx_eps($half, 1e-2)
+                        && (&three_quarter * u).eq_approx_eps($three_quarter, 1e-2)
+                        && (&full * u).eq_approx_eps(u, 1e-2),
+                )
+            }
+        };
+    }
+
+    rotation_test!(
+        rotation_x,
+        Tuple::new(u.x, -u.z, u.y, u.w),
+        Tuple::new(u.x, -u.y, -u.z, u.w),
+        Tuple::new(u.x, u.z, -u.y, u.w)
+    );
+
+    rotation_test!(
+        rotation_y,
+        Tuple::new(u.z, u.y, -u.x, u.w),
+        Tuple::new(-u.x, u.y, -u.z, u.w),
+        Tuple::new(-u.z, u.y, u.x, u.w)
+    );
+
+    rotation_test!(
+        rotation_z,
+        Tuple::new(-u.y, u.x, u.z, u.w),
+        Tuple::new(-u.x, -u.y, u.z, u.w),
+        Tuple::new(u.y, -u.x, u.z, u.w)
+    );
+
+    macro_rules! rotation_invert_test {
+        ($name:ident, $method:ident) => {
+            #[quickcheck]
+            fn $name(Finite(angle): Finite) -> bool {
+                let mut m = Matrix::$method(angle);
+                m.invert() && m.eq_approx(&Matrix::$method(-angle))
+            }
+        };
+    }
+
+    rotation_invert_test!(rotation_x_invert, rotation_x);
+    rotation_invert_test!(rotation_y_invert, rotation_y);
+    rotation_invert_test!(rotation_z_invert, rotation_z);
+
+    macro_rules! rotate_test {
+        ($method:ident, $rotation_method:ident) => {
+            #[quickcheck]
+            fn $method(m: Matrix, Finite(angle): Finite) -> bool {
+                let mut m2 = m.clone();
+                m2.$method(angle);
+                let mut m3 = Matrix::$rotation_method(angle);
+                m3.mul(&m);
+                m2.eq_approx(&m3)
+            }
+        };
+    }
+
+    rotate_test!(rotate_x, rotation_x);
+    rotate_test!(rotate_y, rotation_y);
+    rotate_test!(rotate_z, rotation_z);
+
+    #[quickcheck]
+    fn shearing(
+        Finite(xy): Finite,
+        Finite(xz): Finite,
+        Finite(yx): Finite,
+        Finite(yz): Finite,
+        Finite(zx): Finite,
+        Finite(zy): Finite,
+        u: Tuple,
+    ) -> bool {
+        let m = Matrix::shearing(xy, xz, yx, yz, zx, zy);
+        (&m * u).eq_approx_eps(Tuple::new(
+            u.x + xy * u.y + xz * u.z,
+            u.y + yx * u.x + yz * u.z,
+            u.z + zx * u.x + zy * u.y,
+            u.w,
+        ), 1e-2)
+    }
+
+    #[quickcheck]
+    fn shear(
+        m: Matrix,
+        Finite(xy): Finite,
+        Finite(xz): Finite,
+        Finite(yx): Finite,
+        Finite(yz): Finite,
+        Finite(zx): Finite,
+        Finite(zy): Finite,
+    ) -> bool {
+        let mut m2 = m.clone();
+        m2.shear(xy, xz, yx, yz, zx, zy);
+
+        let mut m3 = Matrix::shearing(xy, xz, yx, yz, zx, zy);
+        m3.mul(&m);
+
+        m2.eq_approx_eps(&m3, 1e-2)
+    }
+
+    #[quickcheck]
+    fn transformations_example() -> bool {
+        let mut m = Matrix::rotation_x(consts::FRAC_PI_2);
+        m.scale(5.0, 5.0, 5.0);
+        m.translate(10.0, 5.0, 7.0);
+        (&m * Tuple::point(1.0, 0.0, 1.0)).eq_approx(Tuple::point(15.0, 0.0, 7.0))
     }
 }
+*/

@@ -93,107 +93,112 @@ impl Canvas {
 mod tests {
     use super::Canvas;
     use crate::color::Color;
-    use quickcheck::{Arbitrary, Gen};
     use std::io::BufRead;
-    use std::iter;
 
-    #[derive(Clone, Debug)]
-    struct Size(usize);
+    const SIZES: [(usize, usize); 5] = [(1, 1), (1, 100), (100, 1), (100, 100), (500, 500)];
 
-    impl Size {
-        const MAX_SIZE: usize = 64;
+    fn colors() -> [Color; 10] {
+        [
+            Color::from_bytes(0, 0, 0),
+            Color::from_bytes(255, 255, 255),
+            Color::from_bytes(168, 149, 184),
+            Color::from_bytes(164, 10, 68),
+            Color::from_bytes(254, 181, 174),
+            Color::from_bytes(190, 186, 187),
+            Color::from_bytes(39, 106, 17),
+            Color::from_bytes(61, 178, 147),
+            Color::from_bytes(200, 102, 248),
+            Color::from_bytes(63, 125, 231),
+        ]
     }
 
-    impl Arbitrary for Size {
-        fn arbitrary(g: &mut Gen) -> Size {
-            let size = <usize as Arbitrary>::arbitrary(g) % Size::MAX_SIZE + 1;
-            Size(size)
+    #[test]
+    fn new() {
+        for &(width, height) in SIZES.iter() {
+            let canvas = Canvas::new(width, height);
+            let check = |x, y| canvas.get(x, y).eq_approx(Color::new(0.0, 0.0, 0.0));
+
+            assert!(
+                canvas.width == width
+                    && canvas.height == height
+                    && (0..width).all(|x| (0..height).all(|y| check(x, y)))
+            );
         }
     }
 
-    #[derive(Clone, Debug)]
-    struct SizeAndCoord(usize, usize);
-
-    impl Arbitrary for SizeAndCoord {
-        fn arbitrary(g: &mut Gen) -> SizeAndCoord {
-            let Size(size) = Arbitrary::arbitrary(g);
-            let coord = <usize as Arbitrary>::arbitrary(g) % size;
-            SizeAndCoord(size, coord)
-        }
-    }
-
-    #[quickcheck]
-    fn new(Size(width): Size, Size(height): Size) -> bool {
-        let canvas = Canvas::new(width, height);
-        let check = |x, y| canvas.get(x, y).eq_approx(Color::new(0.0, 0.0, 0.0));
-        canvas.width == width
-            && canvas.height == height
-            && (0..width).all(|x| (0..height).all(|y| check(x, y)))
-    }
-
-    #[quickcheck]
-    fn get_set(Size(width): Size, Size(height): Size, u: Color) -> bool {
-        let mut canvas = Canvas::new(width, height);
-        let mut check = |x, y| {
-            canvas.set(x, y, u);
-            canvas.get(x, y).eq_approx(u)
-        };
-        (0..width).all(|x| (0..height).all(|y| check(x, y)))
-    }
-
-    #[quickcheck]
-    fn iter_iter_mut(Size(width): Size, Size(height): Size, u: Color) -> bool {
-        let mut canvas = Canvas::new(width, height);
-        canvas.iter().len() == width * height
-            && canvas
-                .iter()
-                .all(|v| v.eq_approx(Color::new(0.0, 0.0, 0.0)))
-            && {
-                for v in canvas.iter_mut() {
-                    *v = u;
+    #[test]
+    fn get_set() {
+        for (&(width, height), &u) in SIZES.iter().zip(colors().iter().cycle()) {
+            let mut canvas = Canvas::new(width, height);
+            for x in 0..width {
+                for y in 0..height {
+                    canvas.set(x, y, u);
+                    assert!(canvas.get(x, y).eq_approx(u));
                 }
-                canvas.iter().all(|v| v.eq_approx(u))
             }
+        }
     }
 
-    #[quickcheck]
-    fn write_ppm(
-        SizeAndCoord(width, x): SizeAndCoord,
-        SizeAndCoord(height, y): SizeAndCoord,
-        u: Color,
-    ) -> bool {
-        let mut canvas = Canvas::new(width, height);
-        canvas.set(x, y, u);
+    #[test]
+    fn iter_iter_mut() {
+        for (&(width, height), &u) in SIZES.iter().zip(colors().iter().cycle()) {
+            let mut canvas = Canvas::new(width, height);
+            assert!(canvas.iter().len() == width * height);
+            assert!(canvas
+                .iter()
+                .all(|v| v.eq_approx(Color::new(0.0, 0.0, 0.0))));
 
-        let mut buf = vec![];
-        canvas.write_ppm(&mut buf).unwrap();
+            for v in canvas.iter_mut() {
+                *v = u;
+            }
 
-        let expected_data = {
-            let i = y * width + x;
-            iter::repeat(0u8)
-                .take(3 * i)
-                .chain(u.to_bytes().iter().map(|&x| x))
-                .chain(iter::repeat(0).take(3 * (width * height - i - 1)))
-                .collect::<Vec<u8>>()
-        };
+            assert!(canvas.iter().all(|v| v.eq_approx(u)));
+        }
+    }
 
-        let lines = buf[..]
-            .lines()
-            .map(|line| line.unwrap())
-            .collect::<Vec<String>>();
+    #[test]
+    fn write_ppm() {
+        for &(width, height) in SIZES.iter() {
+            let mut canvas = Canvas::new(width, height);
 
-        let data = || {
-            lines[3..lines.len() - 1]
+            for (u, &v) in canvas.iter_mut().zip(colors().iter().cycle()) {
+                *u = v;
+            }
+
+            let mut buf = vec![];
+            canvas.write_ppm(&mut buf).unwrap();
+
+            let expected_data =
+                colors()
+                    .iter()
+                    .cycle()
+                    .take(width * height)
+                    .fold(vec![], |mut data, u| {
+                        data.extend_from_slice(&u.to_bytes());
+                        data
+                    });
+
+            let lines = buf[..]
+                .lines()
+                .map(|line| line.unwrap())
+                .collect::<Vec<String>>();
+
+            assert!(
+                lines[0] == "P3"
+                    && lines[1] == format!("{} {}", width, height)
+                    && lines[2] == "255"
+            );
+
+            let data = lines[3..lines.len() - 1]
                 .iter()
                 .flat_map(|line| line.split(' ').map(|num| num.parse::<u8>().unwrap()))
-                .collect::<Vec<u8>>()
-        };
+                .collect::<Vec<u8>>();
 
-        lines[0] == "P3"
-            && lines[1] == format!("{} {}", width, height)
-            && lines[2] == "255"
-            && data() == expected_data
-            && lines[lines.len() - 1] == ""
-            && lines.iter().all(|line| line.len() <= 70)
+            assert!(
+                data == expected_data
+                    && lines[lines.len() - 1] == ""
+                    && lines.iter().all(|line| line.len() <= 70)
+            );
+        }
     }
 }

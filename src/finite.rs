@@ -6,7 +6,7 @@ use std::fmt::Debug;
 pub struct Finite(pub Float);
 
 impl Finite {
-    const MAX_SIZE: Float = 1e7;
+    const MAX_SIZE: Float = 1e2;
 }
 
 impl Arbitrary for Finite {

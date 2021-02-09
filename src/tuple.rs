@@ -2,7 +2,7 @@ use crate::Float;
 use std::ops;
 
 #[cfg(test)]
-use crate::{eq_approx_eps, EPSILON};
+use crate::eq_approx;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Tuple {
@@ -60,15 +60,10 @@ impl Tuple {
 
     #[cfg(test)]
     pub fn eq_approx(self, rhs: Tuple) -> bool {
-        self.eq_approx_eps(rhs, EPSILON)
-    }
-
-    #[cfg(test)]
-    pub fn eq_approx_eps(self, rhs: Tuple, epsilon: Float) -> bool {
-        eq_approx_eps(self.x, rhs.x, epsilon)
-            && eq_approx_eps(self.y, rhs.y, epsilon)
-            && eq_approx_eps(self.z, rhs.z, epsilon)
-            && eq_approx_eps(self.w, rhs.w, epsilon)
+        eq_approx(self.x, rhs.x)
+            && eq_approx(self.y, rhs.y)
+            && eq_approx(self.z, rhs.z)
+            && eq_approx(self.w, rhs.w)
     }
 }
 
@@ -158,8 +153,9 @@ impl ops::Neg for Tuple {
     }
 }
 
+/*
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::Tuple;
     use crate::finite::Finite;
     use crate::{eq_approx, Float, EPSILON};
@@ -176,7 +172,7 @@ mod tests {
     }
 
     #[derive(Clone, Debug)]
-    struct Vector(Tuple);
+    pub struct Vector(pub Tuple);
 
     impl Arbitrary for Vector {
         fn arbitrary(gen: &mut Gen) -> Vector {
@@ -188,7 +184,7 @@ mod tests {
     }
 
     #[derive(Clone, Debug)]
-    struct Point(Tuple);
+    pub struct Point(pub Tuple);
 
     impl Arbitrary for Point {
         fn arbitrary(gen: &mut Gen) -> Point {
@@ -341,12 +337,15 @@ mod tests {
     #[quickcheck]
     fn cross_distributive(Vector(u): Vector, Vector(v): Vector, Vector(q): Vector) -> bool {
         u.cross(v + q).eq_approx_eps(u.cross(v) + u.cross(q), 1e-2)
-            && (u + v).cross(q).eq_approx_eps(u.cross(q) + v.cross(q), 1e-2)
+            && (u + v)
+                .cross(q)
+                .eq_approx_eps(u.cross(q) + v.cross(q), 1e-2)
     }
 
     #[quickcheck]
     fn cross_linear(Vector(u): Vector, Vector(v): Vector, Finite(x): Finite) -> bool {
-        (u * x).cross(v).eq_approx_eps(u.cross(v) * x, 1e-3) && u.cross(v * x).eq_approx_eps(u.cross(v) * x, 1e-2)
+        (u * x).cross(v).eq_approx_eps(u.cross(v) * x, 1e-3)
+            && u.cross(v * x).eq_approx_eps(u.cross(v) * x, 1e-2)
     }
 
     #[quickcheck]
@@ -369,3 +368,4 @@ mod tests {
         pos.eq_approx_eps(Tuple::point(initial_vel.x * total_time, 0.0, 0.0), 1e-2)
     }
 }
+*/
