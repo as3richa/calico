@@ -14,6 +14,7 @@ fn main() {
 
     let mut pos = initial_pos;
     let mut vel = initial_vel;
+
     while pos.y > 0.0 {
         let canvas_x = pos.x.round();
         let canvas_y = (canvas.height() - 1) as Float - pos.y.round();

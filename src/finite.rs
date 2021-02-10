@@ -6,14 +6,13 @@ use std::fmt::Debug;
 pub struct Finite(pub Float);
 
 impl Finite {
-    const MAX_SIZE: Float = 1e2;
+    const MAX_SIZE: Float = 1e4;
 }
 
 impl Arbitrary for Finite {
     fn arbitrary(g: &mut Gen) -> Finite {
         loop {
             let x: Float = Arbitrary::arbitrary(g);
-
             if !x.is_nan() && x.abs() <= Finite::MAX_SIZE {
                 return Finite(x);
             }

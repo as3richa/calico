@@ -9,7 +9,7 @@ pub type Float = f32;
 pub use std::f32::consts;
 
 #[cfg(test)]
-const EPSILON: Float = 1e-7;
+const EPSILON: Float = 1e-4;
 
 #[cfg(test)]
 fn eq_approx(x: Float, y: Float) -> bool {
