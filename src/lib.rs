@@ -1,3 +1,5 @@
+#![feature(slice_ptr_range)]
+
 #[cfg(test)]
 extern crate quickcheck;
 
@@ -21,6 +23,9 @@ mod canvas;
 mod color;
 mod matrix;
 mod tuple;
+
+mod bvh;
+mod scratch;
 
 #[cfg(test)]
 mod finite;
