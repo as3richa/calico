@@ -24,8 +24,8 @@ mod color;
 mod matrix;
 mod tuple;
 
-mod bvh;
-mod scratch;
+pub mod bvh;
+//mod scratch;
 
 #[cfg(test)]
 mod finite;
@@ -34,3 +34,5 @@ pub use canvas::Canvas;
 pub use color::Color;
 pub use matrix::Matrix;
 pub use tuple::Tuple;
+
+//pub use bvh;

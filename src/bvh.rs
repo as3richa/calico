@@ -1,15 +1,44 @@
 use crate::Float;
+use std::marker::PhantomData;
 use std::ops::Range;
 
-#[derive(Clone, Copy)]
-struct BoundingBox {
-    min: [Float; 3],
-    max: [Float; 3],
+pub trait Primitive<I: Intersection>: Copy {
+    fn aabb(&self) -> AABB;
+    fn intersect_first(&self, ray: Ray, max_time: Float) -> Option<I>;
 }
 
-impl BoundingBox {
-    fn empty() -> BoundingBox {
-        BoundingBox {
+pub trait Intersection {
+    fn time(&self) -> Float;
+}
+
+#[derive(Clone, Copy)]
+pub struct Ray {
+    pub origin: [Float; 3],
+    pub velocity: [Float; 3],
+}
+
+impl Ray {
+    pub fn new(origin: [Float; 3], velocity: [Float; 3]) -> Ray {
+        Ray {
+            origin: origin,
+            velocity: velocity,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct AABB {
+    pub min: [Float; 3],
+    pub max: [Float; 3],
+}
+
+impl AABB {
+    pub fn new(min: [Float; 3], max: [Float; 3]) -> AABB {
+        AABB { min: min, max: max }
+    }
+
+    fn empty() -> AABB {
+        AABB {
             min: [Float::INFINITY, Float::INFINITY, Float::INFINITY],
             max: [-Float::INFINITY, -Float::INFINITY, -Float::INFINITY],
         }
@@ -23,8 +52,8 @@ impl BoundingBox {
         ]
     }
 
-    fn join(self, rhs: BoundingBox) -> BoundingBox {
-        BoundingBox {
+    fn join(self, rhs: AABB) -> AABB {
+        AABB {
             min: [
                 Float::min(self.min[0], rhs.min[0]),
                 Float::min(self.min[1], rhs.min[1]),
@@ -38,8 +67,8 @@ impl BoundingBox {
         }
     }
 
-    fn add(self, u: [Float; 3]) -> BoundingBox {
-        BoundingBox {
+    fn add(self, u: [Float; 3]) -> AABB {
+        AABB {
             min: [
                 Float::min(self.min[0], u[0]),
                 Float::min(self.min[1], u[1]),
@@ -65,39 +94,64 @@ impl BoundingBox {
         let [w, h, d] = self.extents();
         w * h + w * d + h * d
     }
-}
 
-trait Primitive: Copy {
-    fn bounding_box(&self) -> BoundingBox;
-}
+    fn intersects(self, ray: Ray, max_time: Float) -> bool {
+        let mut enters = 0.0;
+        let mut exits = max_time;
 
-struct BoundingVolumeHierarchy<P: Primitive> {
-    primitives: Vec<P>,
-    nodes: Vec<Node>,
+        for axis in 0..3 {
+            let p = ray.origin[axis];
+            let v = ray.velocity[axis];
+            let l = self.min[axis];
+            let u = self.max[axis];
+
+            if v.abs() < 1e-7 {
+                // FIXME: epsilon?
+                if p < l || p > u {
+                    return false;
+                } else {
+                    continue;
+                }
+            }
+
+            let bounds = ((l - p) / v, (u - p) / v);
+
+            let (en, ex) = if v > 0.0 {
+                bounds
+            } else {
+                (bounds.1, bounds.0)
+            };
+
+            enters = Float::max(enters, en);
+            exits = Float::max(exits, ex);
+        }
+
+        enters <= exits
+    }
 }
 
 #[derive(Clone)]
 enum Node {
     Branch {
-        bb: BoundingBox,
+        aabb: AABB,
         axis: usize,
         right: usize,
     },
     Leaf {
-        bb: BoundingBox,
+        aabb: AABB,
         range: Range<usize>,
     },
 }
 
 impl Node {
-    fn bb(&self) -> BoundingBox {
+    fn aabb(&self) -> AABB {
         match self {
             Node::Branch {
-                bb,
+                aabb,
                 axis: _,
                 right: _,
-            } => *bb,
-            Node::Leaf { bb, range: _ } => *bb,
+            } => *aabb,
+            Node::Leaf { aabb, range: _ } => *aabb,
         }
     }
 }
@@ -105,73 +159,71 @@ impl Node {
 struct Info {
     index: usize,
     centroid: [Float; 3],
-    bb: BoundingBox,
+    aabb: AABB,
 }
 
 impl Info {
-    fn new<P: Primitive>(index: usize, primitive: &P) -> Info {
-        let bb = primitive.bounding_box();
+    fn new<P: Primitive<I>, I: Intersection>(index: usize, primitive: &P) -> Info {
+        let aabb = primitive.aabb();
         Info {
             index: index,
-            centroid: bb.centroid(),
-            bb: bb,
+            centroid: aabb.centroid(),
+            aabb: aabb,
         }
     }
 }
 
-struct Builder<'a, P: Primitive> {
+struct Builder<'a, P: Primitive<I>, I: Intersection> {
     primitives: &'a [P],
     info: Vec<Info>,
     reordered: Vec<P>,
     nodes: Vec<Node>,
-    node_allocator: usize,
+    intersection: PhantomData<I>,
 }
 
-impl<'a, P: Primitive> Builder<'a, P> {
-    const N_PARTITIONS: usize = 15;
-    const SAH_T_TRAV: Float = 1.0 / 8.0;
-    const SAH_T_ISECT: Float = 1.0;
+impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
+    const TRAVERSAL_COST: Float = 0.125;
+    const INTERSECTION_COST: Float = 1.0;
 
-    fn build(primitives: &'a [P]) -> BoundingVolumeHierarchy<P> {
+    fn build(primitives: &[P], max_leaf_size: usize) -> BVH<P, I> {
         if primitives.is_empty() {
-            return BoundingVolumeHierarchy {
+            let root = Node::Leaf {
+                aabb: AABB::empty(),
+                range: 0..0,
+            };
+
+            return BVH {
                 primitives: vec![],
-                nodes: vec![Self::empty_node()],
+                nodes: vec![root],
+                intersection: PhantomData,
             };
         }
 
-        let builder = Self::new(primitives);
-
-        unimplemented!();
+        let mut builder = Builder::new(primitives);
+        let root = builder.build_recursive(0..primitives.len(), max_leaf_size);
+        debug_assert!(root == 0);
+        builder.finalize()
     }
 
-    fn new(primitives: &'a [P]) -> Builder<P> {
+    fn new(primitives: &'a [P]) -> Self {
         let len = primitives.len();
+        debug_assert!(len > 0);
 
-        let mut info = primitives
+        let info = primitives
             .iter()
             .enumerate()
             .map(|(i, primitive)| Info::new(i, primitive))
             .collect::<Vec<Info>>();
 
-        let mut reordered = Vec::with_capacity(len);
-
-        let max_nodes = 2 * len - 1;
-        let nodes = vec![Self::empty_node(); max_nodes];
+        let reordered = Vec::with_capacity(len);
+        let nodes = Vec::with_capacity(2 * len - 1);
 
         Builder {
             primitives: primitives,
             info: info,
             reordered: reordered,
             nodes: nodes,
-            node_allocator: 0,
-        }
-    }
-
-    fn empty_node() -> Node {
-        Node::Leaf {
-            bb: BoundingBox::empty(),
-            range: 0..0,
+            intersection: PhantomData,
         }
     }
 
@@ -184,7 +236,7 @@ impl<'a, P: Primitive> Builder<'a, P> {
             .choose_axis(range.clone())
             .and_then(|(axis, min, extent)| {
                 let (coord, cost) = self.choose_partition(range.clone(), axis, min, extent);
-                let leaf_cost = Self::SAH_T_ISECT * (range.len() as Float);
+                let leaf_cost = Self::INTERSECTION_COST * (range.len() as Float);
 
                 if range.len() <= max_leaf_size && leaf_cost <= cost {
                     None
@@ -192,11 +244,11 @@ impl<'a, P: Primitive> Builder<'a, P> {
                     let k = self.partition(range.clone(), axis, coord);
                     let left = self.build_recursive(range.start..k, max_leaf_size);
                     let right = self.build_recursive(k..range.end, max_leaf_size);
-                    let bb = self.nodes[left].bb().join(self.nodes[right].bb());
+                    let aabb = self.nodes[left].aabb().join(self.nodes[right].aabb());
                     debug_assert!(left == id + 1);
 
                     Some(Node::Branch {
-                        bb: bb,
+                        aabb: aabb,
                         axis: axis,
                         right: right,
                     })
@@ -204,15 +256,16 @@ impl<'a, P: Primitive> Builder<'a, P> {
             })
             .unwrap_or_else(|| {
                 let re = self.reordered.len();
-                let mut bb = BoundingBox::empty();
+                let mut aabb = AABB::empty();
 
-                for primitive in &self.primitives[range.clone()] {
-                    self.reordered.push(primitive.clone());
-                    bb = bb.join(primitive.bounding_box());
+                for info in &self.info[range.clone()] {
+                    let primitive = self.primitives[info.index].clone();
+                    self.reordered.push(primitive);
+                    aabb = aabb.join(primitive.aabb());
                 }
 
                 Node::Leaf {
-                    bb: bb,
+                    aabb: aabb,
                     range: re..re + range.len(),
                 }
             });
@@ -220,10 +273,30 @@ impl<'a, P: Primitive> Builder<'a, P> {
         id
     }
 
+    fn finalize(self) -> BVH<P, I> {
+        let len = self.primitives.len();
+        debug_assert!(len > 0);
+
+        debug_assert!(self.reordered.len() == len);
+
+        let mut nodes = self.nodes;
+        debug_assert!(nodes.len() <= 2 * len - 1);
+        nodes.shrink_to_fit();
+
+        BVH {
+            primitives: self.reordered,
+            nodes: nodes,
+            intersection: PhantomData,
+        }
+    }
+
     fn allocate_node(&mut self) -> usize {
-        let id = self.node_allocator;
-        self.node_allocator += 1;
-        debug_assert!(self.node_allocator <= 2 * self.primitives.len() - 1);
+        let id = self.nodes.len();
+        let placeholder = Node::Leaf {
+            aabb: AABB::empty(),
+            range: 0..0,
+        };
+        self.nodes.push(placeholder);
         id
     }
 
@@ -232,11 +305,11 @@ impl<'a, P: Primitive> Builder<'a, P> {
             return None;
         }
 
-        let bb = self.info[range]
+        let aabb = self.info[range]
             .iter()
-            .fold(BoundingBox::empty(), |bb, q| bb.add(q.centroid));
+            .fold(AABB::empty(), |aabb, q| aabb.add(q.centroid));
 
-        let extents = bb.extents();
+        let extents = aabb.extents();
         let extent = Float::max(extents[0], Float::max(extents[1], extents[2]));
 
         if extent < 1e-4 {
@@ -250,7 +323,7 @@ impl<'a, P: Primitive> Builder<'a, P> {
                 2
             };
 
-            Some((axis, bb.min[axis], extent))
+            Some((axis, aabb.min[axis], extent))
         }
     }
 
@@ -261,32 +334,38 @@ impl<'a, P: Primitive> Builder<'a, P> {
         min: Float,
         extent: Float,
     ) -> (Float, Float) {
-        const N_BUCKETS: usize = 15;
-        let mut buckets = [Bucket::new(); N_BUCKETS];
+        const N_PARTITIONS: usize = 15;
+        let mut buckets = [Bucket::new(); N_PARTITIONS];
 
         for q in &self.info[range] {
-            let f = ((q.centroid[axis] - min) / extent) * (N_BUCKETS as Float);
-            let i = usize::min(f as usize, N_BUCKETS - 1);
-            buckets[i] = buckets[i].add(q.bb);
+            let f = ((q.centroid[axis] - min) / extent) * (N_PARTITIONS as Float);
+            let i = usize::min(f as usize, N_PARTITIONS - 1);
+            buckets[i] = buckets[i].add(q.aabb);
         }
 
         let mut suffixes = buckets;
-        for i in (0..N_BUCKETS - 1).rev() {
+        for i in (0..N_PARTITIONS - 1).rev() {
             suffixes[i] = suffixes[i].join(suffixes[i + 1]);
         }
 
-        let mut best = (Float::INFINITY, 0.0);
+        let mut best = (0.0, Float::INFINITY);
         let mut prefix = Bucket::new();
-        for i in 0..N_BUCKETS - 1 {
+        for i in 0..N_PARTITIONS - 1 {
             prefix = prefix.join(buckets[i]);
             let suffix = suffixes[i + 1];
-            let cost = Self::SAH_T_TRAV + Self::SAH_T_ISECT * (prefix.cost() + suffix.cost());
-            if cost < best.0 {
-                best = (cost, prefix.bb.max[axis]);
+
+            let cost =
+                Self::TRAVERSAL_COST + Self::INTERSECTION_COST * (prefix.cost() + suffix.cost());
+
+            if cost < best.1 {
+                best = (prefix.aabb.max[axis], cost);
             }
         }
 
-        (best.0, best.1)
+        debug_assert!(min <= best.0 && best.0 <= min + extent);
+        debug_assert!(best.1 < Float::INFINITY);
+
+        best
     }
 
     fn partition(&mut self, range: Range<usize>, axis: usize, coord: Float) -> usize {
@@ -306,96 +385,91 @@ impl<'a, P: Primitive> Builder<'a, P> {
 
 #[derive(Clone, Copy)]
 struct Bucket {
-    bb: BoundingBox,
+    aabb: AABB,
     count: usize,
 }
 
 impl Bucket {
     fn new() -> Bucket {
         Bucket {
-            bb: BoundingBox::empty(),
+            aabb: AABB::empty(),
             count: 0,
         }
     }
 
-    fn add(self, bb: BoundingBox) -> Bucket {
+    fn add(self, aabb: AABB) -> Bucket {
         Bucket {
-            bb: self.bb.join(bb),
+            aabb: self.aabb.join(aabb),
             count: self.count + 1,
         }
     }
 
     fn join(self, rhs: Bucket) -> Bucket {
         Bucket {
-            bb: self.bb.join(rhs.bb),
+            aabb: self.aabb.join(rhs.aabb),
             count: self.count + rhs.count,
         }
     }
 
     fn cost(self) -> Float {
-        self.bb.half_surface_area() * (self.count as Float)
+        self.aabb.half_surface_area() * (self.count as Float)
     }
 }
-/*
-impl<P: Primitive> BoundingVolumeHierarchy<P> {
-    fn new(primitives: &[P], max_leaf_size: usize) -> BoundingVolumeHierarchy<P> {
-        if primitives.is_empty() {
-            let root = Node::Leaf {
-                bb: BoundingBox::empty(),
-                primitives: 0..0,
-            };
 
-            return BoundingVolumeHierarchy {
-                primitives: vec![],
-                nodes: vec![root],
-            };
-        }
+pub struct BVH<P: Primitive<I>, I: Intersection> {
+    primitives: Vec<P>,
+    nodes: Vec<Node>,
+    intersection: PhantomData<I>,
+}
 
-        let len = primitives.len();
-        let max_nodes = 2 * len - 1;
+impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
+    pub fn new(primitives: &[P]) -> BVH<P, I> {
+        Builder::build(primitives, 8)
+    }
 
-        let mut reordered = Vec::with_capacity(len);
-        let mut nodes = Vec::with_capacity(max_nodes);
-        let mut info = primitives
-            .iter()
-            .enumerate()
-            .map(|(i, primitive)| Info::new(i, primitive))
-            .collect::<Vec<Info>>();
+    pub fn intersect_first(&self, ray: Ray, mut max_time: Float) -> Option<I> {
+        let mut stack = Vec::with_capacity(64);
+        stack.push(0);
 
-        let mut build = |begin, end| {
-            debug_assert!(begin < end);
+        let mut first = None;
 
-            let info = &mut info[begin..end];
+        while let Some(mut id) = stack.pop() {
+            loop {
+                match &self.nodes[id] {
+                    Node::Branch { aabb, axis, right } => {
+                        if aabb.intersects(ray, max_time) {
+                            let left = id + 1;
+                            let children = if ray.velocity[*axis] >= 0.0 {
+                                [left, *right]
+                            } else {
+                                [*right, left]
+                            };
 
-            let (axis, min, extent) = Self::choose_axis(info);
-            let coord = Self::choose_partition(info, axis, min, extent);
-
-            let mut k = 0;
-
-            for i in 0..info.len() {
-                if info[i].centroid[axis] <= coord {
-                    info.swap(i, k);
-                    k += 1;
+                            id = children[0];
+                            stack.push(children[1]);
+                        } else {
+                            break;
+                        }
+                    }
+                    Node::Leaf { aabb, range } => {
+                        if aabb.intersects(ray, max_time) {
+                            for primitive in &self.primitives[range.clone()] {
+                                if let Some(intersection) = primitive.intersect_first(ray, max_time)
+                                {
+                                    let time = intersection.time();
+                                    if time < max_time {
+                                        first = Some(intersection);
+                                        max_time = time;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
                 }
             }
-
-            debug_assert!(k != 0 && k != info.len());
-
-            build(begin, begin + k);
-            build()
-        };
-
-        build(0, len);
-
-        debug_assert!(reordered.len() == len);
-        debug_assert!(nodes.len() <= max_nodes);
-
-        nodes.shrink_to_fit();
-
-        BoundingVolumeHierarchy {
-            primitives: reordered,
-            nodes: nodes,
         }
+
+        first
     }
 }
-*/
