@@ -75,20 +75,34 @@ impl Intersection for IdTime {
 }
 
 fn main() {
-    let spheres = (0..100000)
-        .map(|i| Sphere::new(i, 3.0 * (i as Float), 0.0, 0.0, 1.0))
+    let spheres = (0..100)
+        .map(|i| {
+            (0..100).map(move |j| {
+                (0..100).map(move |k| {
+                    Sphere::new(
+                        i,
+                        3.0 * (i as Float),
+                        3.0 * (j as Float),
+                        3.0 * (k as Float),
+                        1.0,
+                    )
+                })
+            })
+        })
+        .flatten()
+        .flatten()
         .collect::<Vec<Sphere>>();
     let bvh = BVH::new(&spheres);
     println!("built");
 
     for i in 0..50 {
-        let y = 5.0 - 10.0 / 50.0 * (i as Float);
+        let y = 18.0 - 20.0 / 50.0 * (i as Float);
         let mut s = String::new();
         for j in 0..100 {
-            let x = 10.0 / 100.0 * (j as Float);
+            let x = -2.0 + 20.0 / 100.0 * (j as Float);
 
             if bvh
-                .intersect_first(Ray::new([x, y, -5.0], [0.0, 0.0, 1.0]), Float::INFINITY)
+                .intersect_first(Ray::new([-1.0, y, x], [1.0, 0.0, 0.0]), Float::INFINITY)
                 .is_none()
             {
                 s += " ";
@@ -96,6 +110,6 @@ fn main() {
                 s += "x";
             }
         }
-        println!("{}", s);
+        println!("{}|", s);
     }
 }
