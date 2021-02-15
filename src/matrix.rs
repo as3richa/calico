@@ -1,4 +1,6 @@
-use crate::{Float, Tuple};
+use crate::bvh::Ray;
+use crate::tuple::Tuple;
+use crate::Float;
 use std::ops;
 
 #[cfg(test)]
@@ -243,6 +245,13 @@ impl Matrix {
         for j in 0..4 {
             self[2][j] = zx * row0[j] + zy * row1[j] + self[2][j];
         }
+    }
+
+    pub fn transform_ray(&self, ray: Ray) -> Ray {
+        Ray::new(
+            (self * ray.origin.as_point()).as_tuple3(),
+            (self * ray.velocity.as_vector()).as_tuple3(),
+        )
     }
 
     #[cfg(test)]

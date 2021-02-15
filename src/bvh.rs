@@ -1,3 +1,5 @@
+use crate::aabb::AABB;
+use crate::tuple::Tuple3;
 use crate::Float;
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -9,8 +11,8 @@ pub struct BVH<P: Primitive<I>, I: Intersection> {
 }
 
 pub trait Primitive<I: Intersection>: Copy {
-    fn aabb(&self) -> AABB;
-    fn intersect_first(&self, ray: Ray, max_time: Float) -> Option<I>;
+    fn aabb(self) -> AABB;
+    fn intersect_first(self, ray: Ray, max_time: Float) -> Option<I>;
 }
 
 pub trait Intersection {
@@ -19,119 +21,20 @@ pub trait Intersection {
 
 #[derive(Clone, Copy)]
 pub struct Ray {
-    pub origin: [Float; 3],
-    pub velocity: [Float; 3],
+    pub origin: Tuple3,
+    pub velocity: Tuple3,
 }
 
 impl Ray {
-    pub fn new(origin: [Float; 3], velocity: [Float; 3]) -> Ray {
+    pub fn new(origin: Tuple3, velocity: Tuple3) -> Ray {
         Ray {
             origin: origin,
             velocity: velocity,
         }
     }
-}
 
-#[derive(Clone, Copy)]
-pub struct AABB {
-    pub min: [Float; 3],
-    pub max: [Float; 3],
-}
-
-impl AABB {
-    pub fn new(min: [Float; 3], max: [Float; 3]) -> AABB {
-        AABB { min: min, max: max }
-    }
-
-    fn empty() -> AABB {
-        AABB {
-            min: [Float::INFINITY, Float::INFINITY, Float::INFINITY],
-            max: [-Float::INFINITY, -Float::INFINITY, -Float::INFINITY],
-        }
-    }
-
-    fn extents(self) -> [Float; 3] {
-        [
-            self.max[0] - self.min[0],
-            self.max[1] - self.min[1],
-            self.max[2] - self.min[2],
-        ]
-    }
-
-    fn join(self, rhs: AABB) -> AABB {
-        AABB {
-            min: [
-                Float::min(self.min[0], rhs.min[0]),
-                Float::min(self.min[1], rhs.min[1]),
-                Float::min(self.min[2], rhs.min[2]),
-            ],
-            max: [
-                Float::max(self.max[0], rhs.max[0]),
-                Float::max(self.max[1], rhs.max[1]),
-                Float::max(self.max[2], rhs.max[2]),
-            ],
-        }
-    }
-
-    fn add(self, u: [Float; 3]) -> AABB {
-        AABB {
-            min: [
-                Float::min(self.min[0], u[0]),
-                Float::min(self.min[1], u[1]),
-                Float::min(self.min[2], u[2]),
-            ],
-            max: [
-                Float::max(self.max[0], u[0]),
-                Float::max(self.max[1], u[1]),
-                Float::max(self.max[2], u[2]),
-            ],
-        }
-    }
-
-    fn centroid(self) -> [Float; 3] {
-        [
-            (self.min[0] + self.max[0]) / 2.0,
-            (self.min[1] + self.max[1]) / 2.0,
-            (self.min[2] + self.max[2]) / 2.0,
-        ]
-    }
-
-    fn half_surface_area(self) -> Float {
-        let [w, h, d] = self.extents();
-        w * h + w * d + h * d
-    }
-
-    fn intersects_ray(
-        self,
-        origin: [Float; 3],
-        inverse_velocity: [Float; 3],
-        max_time: Float,
-    ) -> bool {
-        let mut enters = 0.0;
-        let mut exits = max_time;
-
-        for axis in 0..3 {
-            let p = origin[axis];
-            let inv_v = inverse_velocity[axis];
-            let l = self.min[axis];
-            let u = self.max[axis];
-
-            let bounds = ((l - p) * inv_v, (u - p) * inv_v);
-
-            let (en, ex) = if inv_v > 0.0 {
-                bounds
-            } else {
-                (bounds.1, bounds.0)
-            };
-
-            enters = Float::max(enters, en);
-            exits = Float::min(exits, ex);
-        }
-
-        debug_assert!(!enters.is_nan());
-        debug_assert!(!exits.is_nan());
-
-        enters <= exits * 1.00000024
+    pub fn at(self, time: Float) -> Tuple3 {
+        self.origin + self.velocity * time
     }
 }
 
@@ -163,7 +66,7 @@ impl Node {
 
 struct Info {
     index: usize,
-    centroid: [Float; 3],
+    centroid: Tuple3,
     aabb: AABB,
 }
 
@@ -313,20 +216,12 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
             .iter()
             .fold(AABB::empty(), |aabb, q| aabb.add(q.centroid));
 
-        let extents = aabb.extents();
-        let extent = Float::max(extents[0], Float::max(extents[1], extents[2]));
+        let (axis, extent) = aabb.extents().argmax();
 
         if extent < 1e-4 {
+            // FIXME: epsilon?
             None
         } else {
-            let axis = if extents[0] == extent {
-                0
-            } else if extents[1] == extent {
-                1
-            } else {
-                2
-            };
-
             Some((axis, aabb.min[axis], extent))
         }
     }
@@ -416,8 +311,45 @@ impl Bucket {
     }
 
     fn cost(self) -> Float {
-        self.aabb.half_surface_area() * (self.count as Float)
+        let extents = self.aabb.extents();
+        let half_surface_area =
+            extents.x() * extents.y() + extents.x() * extents.z() + extents.y() * extents.z();
+        half_surface_area * (self.count as Float)
     }
+}
+
+fn aabb_ray_robust_intersect(
+    aabb: AABB,
+    origin: Tuple3,
+    inv_velocity: Tuple3,
+    max_time: Float,
+) -> bool {
+    let mut enters = 0.0;
+    let mut exits = max_time;
+
+    for axis in 0..3 {
+        let o = origin[axis];
+        let iv = inv_velocity[axis];
+        let l = aabb.min[axis];
+        let u = aabb.max[axis];
+
+        let bounds = ((l - o) * iv, (u - o) * iv);
+
+        let (en, ex) = if iv > 0.0 {
+            bounds
+        } else {
+            (bounds.1, bounds.0)
+        };
+
+        enters = Float::max(enters, en);
+        exits = Float::min(exits, ex);
+    }
+
+    debug_assert!(!enters.is_nan());
+    debug_assert!(!exits.is_nan());
+
+    // ref. Thiago Ize, Robust BVH Ray Traversal (http://jcgt.org/published/0002/02/02/)
+    enters <= exits * 1.00000024
 }
 
 impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
@@ -431,20 +363,17 @@ impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
 
         let mut first = None;
 
-        let inverse_velocity = [
+        let inv_velocity = Tuple3::new([
             1.0 / ray.velocity[0],
             1.0 / ray.velocity[1],
             1.0 / ray.velocity[2],
-        ];
+        ]);
 
         while let Some(mut id) = stack.pop() {
             loop {
                 let node = &self.nodes[id];
 
-                if !node
-                    .aabb()
-                    .intersects_ray(ray.origin, inverse_velocity, max_time)
-                {
+                if !aabb_ray_robust_intersect(node.aabb(), ray.origin, inv_velocity, max_time) {
                     break;
                 }
 
@@ -466,9 +395,10 @@ impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
 
                     Node::Leaf { aabb: _, range } => {
                         for primitive in &self.primitives[range.clone()] {
-                            if !primitive.aabb().intersects_ray(
+                            if !aabb_ray_robust_intersect(
+                                primitive.aabb(),
                                 ray.origin,
-                                inverse_velocity,
+                                inv_velocity,
                                 max_time,
                             ) {
                                 continue;

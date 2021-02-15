@@ -19,13 +19,15 @@ fn eq_approx(x: Float, y: Float) -> bool {
         || Float::abs(x - y) / Float::max(Float::abs(x), Float::abs(y)) < EPSILON
 }
 
+mod aabb;
+mod arena;
+mod bvh;
 mod canvas;
 mod color;
 mod matrix;
+mod triangle_mesh;
 mod tuple;
-
-pub mod bvh;
-//mod scratch;
+mod world;
 
 #[cfg(test)]
 mod finite;

@@ -12,7 +12,7 @@ pub struct Color {
 }
 
 impl Color {
-    pub fn new(r: Float, g: Float, b: Float) -> Color {
+    pub const fn new(r: Float, g: Float, b: Float) -> Color {
         Color { r: r, g: g, b: b }
     }
 

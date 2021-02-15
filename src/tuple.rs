@@ -34,12 +34,8 @@ impl Tuple {
         self.x * rhs.x + self.y * rhs.y + self.z * rhs.z + self.w * rhs.w
     }
 
-    pub fn norm_sq(self) -> Float {
-        self.dot(self)
-    }
-
     pub fn norm(self) -> Float {
-        Float::sqrt(self.norm_sq())
+        Float::sqrt(self.dot(self))
     }
 
     pub fn normalize(self) -> Tuple {
@@ -54,8 +50,8 @@ impl Tuple {
         )
     }
 
-    pub fn to_array(self) -> [Float; 4] {
-        [self.x, self.y, self.z, self.w]
+    pub fn as_tuple3(self) -> Tuple3 {
+        Tuple3::new([self.x, self.y, self.z])
     }
 
     #[cfg(test)]
@@ -150,6 +146,135 @@ impl ops::Neg for Tuple {
 
     fn neg(self) -> Tuple {
         Tuple::new(-self.x, -self.y, -self.z, -self.w)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Tuple3([Float; 3]);
+
+impl Tuple3 {
+    pub fn new(v: [Float; 3]) -> Tuple3 {
+        Tuple3(v)
+    }
+
+    pub fn x(self) -> Float {
+        self[0]
+    }
+
+    pub fn y(self) -> Float {
+        self[1]
+    }
+
+    pub fn z(self) -> Float {
+        self[2]
+    }
+
+    pub fn argmax(self) -> (usize, Float) {
+        let max = Float::max(self.x(), Float::max(self.y(), self.z()));
+        let axis = if max == self.x() {
+            0
+        } else if max == self.y() {
+            1
+        } else {
+            2
+        };
+        (axis, max)
+    }
+
+    pub fn dot(self, rhs: Tuple3) -> Float {
+        self.x() * rhs.x() + self.y() * rhs.y() + self.z() * rhs.z()
+    }
+
+    pub fn cross(self, rhs: Tuple3) -> Tuple3 {
+        Tuple3::new([
+            self.y() * rhs.z() - self.z() * rhs.y(),
+            self.z() * rhs.x() - self.x() * rhs.z(),
+            self.x() * rhs.y() - self.y() * rhs.x(),
+        ])
+    }
+
+    pub fn min(lhs: Tuple3, rhs: Tuple3) -> Tuple3 {
+        Tuple3::new([
+            Float::min(lhs.x(), rhs.x()),
+            Float::min(lhs.y(), rhs.y()),
+            Float::min(lhs.z(), rhs.z()),
+        ])
+    }
+
+    pub fn max(lhs: Tuple3, rhs: Tuple3) -> Tuple3 {
+        Tuple3::new([
+            Float::max(lhs.x(), rhs.x()),
+            Float::max(lhs.y(), rhs.y()),
+            Float::max(lhs.z(), rhs.z()),
+        ])
+    }
+
+    pub fn norm(self) -> Float {
+        Float::sqrt(self.dot(self))
+    }
+
+    pub fn normalize(self) -> Tuple3 {
+        self / self.norm()
+    }
+
+    pub fn as_point(self) -> Tuple {
+        Tuple::point(self.x(), self.y(), self.z())
+    }
+
+    pub fn as_vector(self) -> Tuple {
+        Tuple::vector(self.x(), self.y(), self.z())
+    }
+}
+
+impl ops::Add<Tuple3> for Tuple3 {
+    type Output = Tuple3;
+
+    fn add(self, rhs: Tuple3) -> Tuple3 {
+        Tuple3::new([self.x() + rhs.x(), self.y() + rhs.y(), self.z() + rhs.z()])
+    }
+}
+
+impl ops::Sub<Tuple3> for Tuple3 {
+    type Output = Tuple3;
+
+    fn sub(self, rhs: Tuple3) -> Tuple3 {
+        Tuple3::new([self.x() - rhs.x(), self.y() - rhs.y(), self.z() - rhs.z()])
+    }
+}
+
+impl ops::Mul<Float> for Tuple3 {
+    type Output = Tuple3;
+
+    fn mul(self, rhs: Float) -> Tuple3 {
+        Tuple3::new([self.x() * rhs, self.y() * rhs, self.z() * rhs])
+    }
+}
+
+impl ops::Div<Float> for Tuple3 {
+    type Output = Tuple3;
+
+    fn div(self, rhs: Float) -> Tuple3 {
+        Tuple3::new([self.x() / rhs, self.y() / rhs, self.z() / rhs])
+    }
+}
+
+impl ops::Index<usize> for Tuple3 {
+    type Output = Float;
+
+    fn index(&self, i: usize) -> &Float {
+        &self.0[i]
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Tuple2 {
+    x: Float,
+    y: Float,
+}
+
+impl Tuple2 {
+    pub fn new(x: Float, y: Float) -> Tuple2 {
+        Tuple2 { x: x, y: y }
     }
 }
 
@@ -297,7 +422,7 @@ pub mod tests {
 
     #[quickcheck]
     fn norm(u: Tuple) -> bool {
-        eq_approx(u.norm(), Float::sqrt(u.dot(u))) && eq_approx(u.norm_sq(), u.norm() * u.norm())
+        eq_approx(u.norm(), Float::sqrt(u.dot(u)))
     }
 
     #[quickcheck]
