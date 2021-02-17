@@ -121,7 +121,7 @@ impl PrimitiveBuilder {
     }
 
     pub fn rotate_z(&mut self, z: Float) {
-        self.object_to_world.rotate_x(z);
+        self.object_to_world.rotate_z(z);
     }
 
     pub fn scale(&mut self, x: Float, y: Float, z: Float) {
@@ -209,23 +209,29 @@ impl BVHPrimitive<SurfaceInteraction> for Primitive {
     fn intersect_first(&self, ray: Ray, max_time: Float) -> Option<SurfaceInteraction> {
         let transformed_ray = self.world_to_object.transform_ray(ray);
 
-        match self.data {
+        let interaction = match self.data {
             PrimitiveData::Shape(shape, material) => shape
                 .intersect_first(transformed_ray, max_time)
-                .map(|intersection| {
-                    let transformed_normal =
-                        &self.object_to_world_transpose * intersection.normal.as_vector();
-
-                    SurfaceInteraction {
-                        time: intersection.time,
-                        normal: transformed_normal.as_tuple3(),
-                        material: material,
-                    }
+                .map(|intersection| SurfaceInteraction {
+                    time: intersection.time,
+                    normal: intersection.normal,
+                    material: material,
                 }),
             PrimitiveData::Transformed(primitive) => unsafe {
                 (*primitive).intersect_first(transformed_ray, max_time)
             },
-        }
+        };
+
+        interaction.map(|interaction| {
+            let mut foo = self.world_to_object.clone();
+            foo.transpose();
+            let transformed_normal = &foo * interaction.normal.as_vector();
+            SurfaceInteraction {
+                time: interaction.time,
+                normal: transformed_normal.as_tuple3(),
+                material: interaction.material,
+            }
+        })
     }
 }
 

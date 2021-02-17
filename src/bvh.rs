@@ -239,7 +239,7 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
         for q in &self.info[range] {
             let f = ((q.centroid[axis] - min) / extent) * (N_PARTITIONS as Float);
             let i = usize::min(f as usize, N_PARTITIONS - 1);
-            buckets[i] = buckets[i].add(q.aabb);
+            buckets[i] = buckets[i].add(q.aabb, q.centroid[axis]);
         }
 
         let mut suffixes = buckets;
@@ -257,12 +257,9 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
                 Self::TRAVERSAL_COST + Self::INTERSECTION_COST * (prefix.cost() + suffix.cost());
 
             if cost < best.1 {
-                best = (prefix.aabb.max[axis], cost);
+                best = (prefix.max_position, cost);
             }
         }
-
-        debug_assert!(min <= best.0 && best.0 <= min + extent);
-        debug_assert!(best.1 < Float::INFINITY);
 
         best
     }
@@ -282,9 +279,10 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Bucket {
     aabb: AABB,
+    max_position: Float,
     count: usize,
 }
 
@@ -292,13 +290,15 @@ impl Bucket {
     fn new() -> Bucket {
         Bucket {
             aabb: AABB::empty(),
+            max_position: -Float::INFINITY,
             count: 0,
         }
     }
 
-    fn add(self, aabb: AABB) -> Bucket {
+    fn add(self, aabb: AABB, position: Float) -> Bucket {
         Bucket {
             aabb: self.aabb.join(aabb),
+            max_position: Float::max(self.max_position, position),
             count: self.count + 1,
         }
     }
@@ -306,6 +306,7 @@ impl Bucket {
     fn join(self, rhs: Bucket) -> Bucket {
         Bucket {
             aabb: self.aabb.join(rhs.aabb),
+            max_position: Float::max(self.max_position, rhs.max_position),
             count: self.count + rhs.count,
         }
     }

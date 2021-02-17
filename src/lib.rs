@@ -24,6 +24,7 @@ pub mod bvh;
 mod canvas;
 mod color;
 mod matrix;
+pub mod scene;
 pub mod shape;
 mod triangle_mesh;
 pub mod tuple;
