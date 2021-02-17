@@ -20,14 +20,14 @@ fn eq_approx(x: Float, y: Float) -> bool {
 }
 
 mod aabb;
-mod arena;
-mod bvh;
+pub mod bvh;
 mod canvas;
 mod color;
 mod matrix;
+pub mod shape;
 mod triangle_mesh;
-mod tuple;
-mod world;
+pub mod tuple;
+pub mod world;
 
 #[cfg(test)]
 mod finite;

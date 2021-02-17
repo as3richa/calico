@@ -10,16 +10,16 @@ pub struct BVH<P: Primitive<I>, I: Intersection> {
     intersection: PhantomData<I>,
 }
 
-pub trait Primitive<I: Intersection>: Copy {
-    fn aabb(self) -> AABB;
-    fn intersect_first(self, ray: Ray, max_time: Float) -> Option<I>;
+pub trait Primitive<I: Intersection>: Clone {
+    fn aabb(&self) -> AABB;
+    fn intersect_first(&self, ray: Ray, max_time: Float) -> Option<I>;
 }
 
 pub trait Intersection {
     fn time(&self) -> Float;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Ray {
     pub origin: Tuple3,
     pub velocity: Tuple3,
@@ -167,8 +167,8 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
 
                 for info in &self.info[range.clone()] {
                     let primitive = self.primitives[info.index].clone();
-                    self.reordered.push(primitive);
                     aabb = aabb.join(primitive.aabb());
+                    self.reordered.push(primitive);
                 }
 
                 Node::Leaf {

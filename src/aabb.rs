@@ -1,7 +1,7 @@
 use crate::tuple::Tuple3;
 use crate::Float;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct AABB {
     pub min: Tuple3,
     pub max: Tuple3,

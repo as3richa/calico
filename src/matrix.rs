@@ -118,11 +118,23 @@ impl Matrix {
             + self[0][3] * self.cofactor(0, 3)
     }
 
+    // FIXME: inverse?
     pub fn invert(&mut self) -> bool {
+        match self.inverse() {
+            Some(m) => {
+                *self = m;
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn inverse(&self) -> Option<Matrix> {
         let det = self.determinant();
 
+        // FIXME: epsilon?
         if det.abs() < 1e-3 {
-            return false;
+            return None;
         }
 
         let mut m = [[0.0; 4]; 4];
@@ -133,8 +145,7 @@ impl Matrix {
             }
         }
 
-        self.0 = m;
-        true
+        Some(Matrix::new(m))
     }
 
     fn minor3x3(

@@ -149,7 +149,7 @@ impl ops::Neg for Tuple {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Tuple3([Float; 3]);
 
 impl Tuple3 {
