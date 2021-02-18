@@ -4,7 +4,6 @@ use calico::shape::Shape;
 use calico::tuple::Tuple3;
 use calico::world::{Camera, Light, Material, PrimitiveBuilder, WorldBuilder};
 use calico::Color;
-use calico::Matrix;
 
 fn main() {
     let mut builder = WorldBuilder::new();
@@ -90,21 +89,20 @@ fn main() {
         Color::new(1.0, 1.0, 1.0),
     ));
 
+    builder.light(Light::PointLight(
+        Tuple3::new([10.0, 10.0, -10.0]),
+        Color::new(1.0, 1.0,1.0),
+    ));
+
     let world = builder.finalize();
 
-    let camera = Camera::new(
-        1000,
-        500,
-        3.1415 / 3.0,
-        1.0,
-        Matrix::look_at(
-            Tuple3::new([0.0, 1.5, -5.0]),
-            Tuple3::new([0.0, 1.0, 0.0]),
-            Tuple3::new([0.0, 1.0, 0.0]),
-        ),
+    let camera = Camera::new().set_field_of_view(3.14159 / 3.0).look_at(
+        Tuple3::new([0.0, 1.5, -5.0]),
+        Tuple3::new([0.0, 1.0, 0.0]),
+        Tuple3::new([0.0, 1.0, 0.0]),
     );
 
-    let canvas = camera.render(&world);
+    let canvas = camera.render(&world, 1000, 500);
 
     let mut f = std::fs::OpenOptions::new()
         .write(true)

@@ -6,7 +6,7 @@ use crate::matrix::Matrix;
 use crate::shape::Shape;
 use crate::tuple::{Tuple, Tuple3};
 use crate::Canvas;
-use crate::Float;
+use crate::{consts, Float};
 
 pub struct WorldBuilder {
     objects: Vec<PrimitiveBuilder>,
@@ -374,46 +374,54 @@ impl Light {
 }
 
 pub struct Camera {
-    width: usize,
-    height: usize,
     field_of_view: Float,
     focal_distance: Float,
-    transform: Matrix,
+    world_to_camera: Matrix,
     // aperture
 }
 
 impl Camera {
-    pub fn new(
-        width: usize,
-        height: usize,
-        field_of_view: Float,
-        focal_distance: Float,
-        transform: Matrix,
-    ) -> Camera {
+    pub fn new() -> Camera {
         Camera {
-            width: width,
-            height: height,
-            field_of_view: field_of_view,
-            focal_distance: focal_distance,
-            transform: transform,
+            field_of_view: consts::FRAC_PI_2,
+            focal_distance: 1.0,
+            world_to_camera: Matrix::identity(),
         }
     }
 
-    pub fn render(&self, world: &World) -> Canvas {
-        let camera_to_world = self.transform.inverse().unwrap_or_else(Matrix::identity);
+    pub fn set_field_of_view(mut self, field_of_view: Float) -> Camera {
+        self.field_of_view = field_of_view;
+        self
+    }
+
+    pub fn look_at(mut self, eye: Tuple3, center: Tuple3, up: Tuple3) -> Camera {
+        self.world_to_camera = Matrix::look_at(eye, center, up);
+        self
+    }
+
+    pub fn set_transform(mut self, world_to_camera: Matrix) -> Camera {
+        self.world_to_camera = world_to_camera;
+        self
+    }
+
+    pub fn render(&self, world: &World, width: usize, height: usize) -> Canvas {
+        let camera_to_world = self
+            .world_to_camera
+            .inverse()
+            .unwrap_or_else(Matrix::identity);
 
         let pixel_size = {
-            let len = usize::max(self.width, self.height) as Float;
+            let len = usize::max(width, height) as Float;
             2.0 * self.focal_distance * Float::tan(self.field_of_view / 2.0) / len
         };
 
-        let left = -(self.width as Float) / 2.0 * pixel_size;
-        let top = (self.height as Float) / 2.0 * pixel_size;
+        let left = -(width as Float) / 2.0 * pixel_size;
+        let top = (height as Float) / 2.0 * pixel_size;
 
-        let mut canvas = Canvas::new(self.width, self.height);
+        let mut canvas = Canvas::new(width, height);
 
-        for j in 0..self.height {
-            for i in 0..self.width {
+        for j in 0..height {
+            for i in 0..width {
                 let x = left + pixel_size * (i as Float + 0.5);
                 let y = top - pixel_size * (j as Float + 0.5);
 
