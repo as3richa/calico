@@ -119,15 +119,11 @@ impl World {
         };
 
         let lighting_for_light = |light: &Light| {
-            if light.occluded(self, point) {
-                return Color::new(0.0, 0.0, 0.0);
-            }
-
             let Lighting {
                 color: color_l,
                 diffuse: diffuse_l,
                 specular: specular_l,
-            } = light.lighting(point, normal, eye);
+            } = light.lighting(point, normal, eye, &self);
 
             let diffuse_ambient_color =
                 (color_l.blend(color_m)) * (ambient + diffuse_l * diffuse_m);
@@ -402,26 +398,31 @@ impl Light {
         Light(LightData::PointLight(position, intensity))
     }
 
-    fn occluded(&self, world: &World, point: Tuple3) -> bool {
-        match self.0 {
-            LightData::PointLight(position, _) => {
-                let velocity = position - point;
-                let ray = Ray::new(point + velocity * 1e-3, velocity);
-                world.cast_shadow_ray(ray, 1.0)
-            }
-        }
-    }
-
-    fn lighting(&self, point: Tuple3, normal: Tuple3, eye: Tuple3) -> Lighting {
+    fn lighting(&self, point: Tuple3, normal: Tuple3, eye: Tuple3, world: &World) -> Lighting {
         match self.0 {
             LightData::PointLight(position, color) => {
                 let light = (position - point).normalize();
                 let reflected = normal * light.dot(normal) * 2.0 - light;
 
+                let occluded = {
+                    let velocity = position - point;
+                    let ray = Ray::new(point + velocity * 1e-3, velocity);
+                    world.cast_shadow_ray(ray, 1.0)
+                };
+
+                let (diffuse, specular) = if occluded {
+                    (0.0, 0.0)
+                } else {
+                    (
+                        Float::max(light.dot(normal), 0.0),
+                        Float::max(reflected.dot(eye), 0.0),
+                    )
+                };
+
                 Lighting {
                     color: color,
-                    diffuse: Float::max(light.dot(normal), 0.0),
-                    specular: Float::max(reflected.dot(eye), 0.0),
+                    diffuse: diffuse,
+                    specular: specular,
                 }
             }
         }
