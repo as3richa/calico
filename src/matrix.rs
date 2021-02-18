@@ -1,5 +1,5 @@
 use crate::bvh::Ray;
-use crate::tuple::Tuple;
+use crate::tuple::{Tuple, Tuple3};
 use crate::Float;
 use std::ops;
 
@@ -76,6 +76,19 @@ impl Matrix {
             [1.0, xy, xz, 0.0],
             [yx, 1.0, yz, 0.0],
             [zx, zy, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    pub fn look_at(eye: Tuple3, center: Tuple3, up: Tuple3) -> Matrix {
+        let forward = (center - eye).normalize();
+        let right = up.cross(forward).normalize();
+        let up_perp = forward.cross(right);
+
+        Matrix::new([
+            [right[0], right[1], right[2], -eye.dot(right)],
+            [up_perp[0], up_perp[1], up_perp[2], -eye.dot(up_perp)],
+            [forward[0], forward[1], forward[2], -eye.dot(forward)],
             [0.0, 0.0, 0.0, 1.0],
         ])
     }

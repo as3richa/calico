@@ -258,6 +258,14 @@ impl ops::Div<Float> for Tuple3 {
     }
 }
 
+impl ops::Neg for Tuple3 {
+    type Output = Tuple3;
+
+    fn neg(self) -> Tuple3 {
+        Tuple3::new([-self.x(), -self.y(), -self.z()])
+    }
+}
+
 impl ops::Index<usize> for Tuple3 {
     type Output = Float;
 

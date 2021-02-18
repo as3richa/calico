@@ -5,12 +5,15 @@ use crate::color::Color;
 use crate::matrix::Matrix;
 use crate::shape::Shape;
 use crate::tuple::{Tuple, Tuple3};
+use crate::Canvas;
 use crate::Float;
 
 pub struct WorldBuilder {
     objects: Vec<PrimitiveBuilder>,
     prototypes: Vec<PrimitiveBuilder>,
     materials: Vec<Material>,
+    lights: Vec<Light>,
+    background: Color,
 }
 
 impl WorldBuilder {
@@ -19,6 +22,8 @@ impl WorldBuilder {
             objects: vec![],
             prototypes: vec![],
             materials: vec![],
+            lights: vec![],
+            background: Color::new(0.0, 0.0, 0.0),
         }
     }
 
@@ -38,6 +43,14 @@ impl WorldBuilder {
         MaterialHandle(id)
     }
 
+    pub fn light(&mut self, light: Light) {
+        self.lights.push(light);
+    }
+
+    pub fn background(&mut self, background: Color) {
+        self.background = background;
+    }
+
     pub fn finalize(self) -> World {
         let mut prototypes = Vec::with_capacity(self.prototypes.len());
 
@@ -55,6 +68,8 @@ impl WorldBuilder {
             bvh: BVH::new(&objects),
             prototypes: prototypes,
             materials: self.materials,
+            lights: self.lights,
+            background: self.background,
         }
     }
 }
@@ -63,15 +78,61 @@ pub struct World {
     bvh: BVH<Primitive, SurfaceInteraction>,
     prototypes: Vec<Primitive>,
     materials: Vec<Material>,
+    lights: Vec<Light>,
+    background: Color,
 }
 
 impl World {
-    pub fn cast_ray(&self, ray: Ray, max_time: Float) -> Option<SurfaceInteraction> {
-        self.bvh.intersect_first(ray, max_time)
+    pub fn cast_ray(&self, ray: Ray) -> Color {
+        self.bvh
+            .intersect_first(ray, Float::INFINITY)
+            .map(|interaction| self.lighting(ray, interaction))
+            .unwrap_or(self.background)
     }
 
-    pub fn cast_shadow_ray(&self, ray: Ray, max_time: Float) -> bool {
-        unimplemented!()
+    fn lighting(&self, ray: Ray, interaction: SurfaceInteraction) -> Color {
+        let point = ray.at(interaction.time);
+        let eye = (ray.origin - point).normalize();
+        let normal = {
+            let normal = interaction.normal.normalize();
+            if normal.dot(eye) < 0.0 {
+                -normal
+            } else {
+                normal
+            }
+        };
+
+        let (color_m, ambient, diffuse_m, specular_m, shininess) = unsafe {
+            let m = interaction.material;
+            (
+                (*m).color,
+                (*m).ambient,
+                (*m).diffuse,
+                (*m).specular,
+                (*m).shininess,
+            )
+        };
+
+        let lighting_for_light = |light: &Light| {
+            let Lighting {
+                color: color_l,
+                diffuse: diffuse_l,
+                specular: specular_l,
+            } = light.lighting(point, normal, eye);
+
+            let diffuse_ambient_color =
+                (color_l.blend(color_m)) * (ambient + diffuse_l * diffuse_m);
+
+            let specular_color =
+                color_l * Float::powf(Float::max(0.0, specular_l), shininess) * specular_m;
+
+            diffuse_ambient_color + specular_color
+        };
+
+        self.lights
+            .iter()
+            .map(lighting_for_light)
+            .fold(Color::new(0.0, 0.0, 0.0), |u, v| u + v)
     }
 }
 
@@ -258,5 +319,92 @@ pub struct SurfaceInteraction {
 impl Intersection for SurfaceInteraction {
     fn time(&self) -> Float {
         self.time
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Light {
+    PointLight(Tuple3, Color),
+    // spotlight, area light
+}
+
+pub struct Lighting {
+    pub color: Color,
+    pub diffuse: Float,
+    pub specular: Float,
+}
+
+impl Light {
+    pub fn lighting(self, point: Tuple3, normal: Tuple3, eye: Tuple3) -> Lighting {
+        match self {
+            Light::PointLight(position, color) => {
+                let light = (position - point).normalize();
+                let reflected = normal * light.dot(normal) * 2.0 - light;
+
+                Lighting {
+                    color: color,
+                    diffuse: Float::max(light.dot(normal), 0.0),
+                    specular: Float::max(reflected.dot(eye), 0.0),
+                }
+            }
+        }
+    }
+}
+
+pub struct Camera {
+    width: usize,
+    height: usize,
+    field_of_view: Float,
+    focal_distance: Float,
+    transform: Matrix,
+    // aperture
+}
+
+impl Camera {
+    pub fn new(
+        width: usize,
+        height: usize,
+        field_of_view: Float,
+        focal_distance: Float,
+        transform: Matrix,
+    ) -> Camera {
+        Camera {
+            width: width,
+            height: height,
+            field_of_view: field_of_view,
+            focal_distance: focal_distance,
+            transform: transform,
+        }
+    }
+
+    pub fn render(&self, world: &World) -> Canvas {
+        let camera_to_world = self.transform.inverse().unwrap_or_else(Matrix::identity);
+
+        let pixel_size = {
+            let len = usize::max(self.width, self.height) as Float;
+            2.0 * self.focal_distance * Float::tan(self.field_of_view / 2.0) / len
+        };
+
+        let left = -(self.width as Float) / 2.0 * pixel_size;
+        let top = (self.height as Float) / 2.0 * pixel_size;
+
+        let mut canvas = Canvas::new(self.width, self.height);
+
+        for j in 0..self.height {
+            for i in 0..self.width {
+                let x = left + pixel_size * (i as Float + 0.5);
+                let y = top - pixel_size * (j as Float + 0.5);
+
+                let camera_ray = Ray::new(
+                    Tuple3::new([0.0, 0.0, 0.0]),
+                    Tuple3::new([x, y, self.focal_distance]),
+                );
+
+                let ray = camera_to_world.transform_ray(camera_ray);
+                canvas.set(i, j, world.cast_ray(ray));
+            }
+        }
+
+        canvas
     }
 }
