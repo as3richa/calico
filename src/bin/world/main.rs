@@ -84,10 +84,14 @@ fn main() {
             .translate(-1.5, 1.0 / 3.0, -0.75),
     );
 
-    builder.light(Light::point_light(
-        Tuple3::new([-10.0, 10.0, -10.0]),
-        Color::new(1.0, 1.0, 1.0),
-    ));
+    for i in 0..10 {
+        for j in 0..3 {
+            builder.light(Light::point_light(
+                Tuple3::new([-10.0 + (i as f32) / 10.0, 10.0 + (j as f32) / 10.0, -10.0]),
+                Color::new(1.0 / 30.0, 1.0 / 30.0, 1.0 / 30.0),
+            ));
+        }
+    }
 
     let world = builder.finalize();
 
@@ -97,7 +101,7 @@ fn main() {
         Tuple3::new([0.0, 1.0, 0.0]),
     );
 
-    let canvas = camera.render(&world, 1000, 500);
+    let canvas = camera.render(&world, 500, 250);
 
     let mut f = std::fs::OpenOptions::new()
         .write(true)

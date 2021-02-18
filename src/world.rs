@@ -74,8 +74,13 @@ impl WorldBuilder {
     }
 }
 
+#[derive(Clone, Copy)]
+struct RayContext {
+    shadow: bool,
+}
+
 pub struct World {
-    bvh: BVH<Primitive, SurfaceInteraction>,
+    bvh: BVH<Primitive, SurfaceInteraction, RayContext>,
     lights: Vec<Light>,
     background: Color,
     _prototypes: Vec<Primitive>,
@@ -85,7 +90,7 @@ pub struct World {
 impl World {
     pub fn cast_ray(&self, ray: Ray) -> Color {
         self.bvh
-            .intersect_first(ray, Float::INFINITY)
+            .intersect_first(ray, Float::INFINITY, RayContext { shadow: false })
             .map(|interaction| self.lighting(ray, interaction))
             .unwrap_or(self.background)
     }
@@ -114,6 +119,10 @@ impl World {
         };
 
         let lighting_for_light = |light: &Light| {
+            if light.occluded(self, point) {
+                return Color::new(0.0, 0.0, 0.0);
+            }
+
             let Lighting {
                 color: color_l,
                 diffuse: diffuse_l,
@@ -134,6 +143,11 @@ impl World {
             .map(lighting_for_light)
             .fold(Color::new(0.0, 0.0, 0.0), |u, v| u + v)
     }
+
+    fn cast_shadow_ray(&self, ray: Ray, max_time: Float) -> bool {
+        self.bvh
+            .intersect_pred(ray, max_time, RayContext { shadow: true })
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -143,21 +157,26 @@ pub struct PrototypeHandle(usize);
 pub struct PrimitiveBuilder {
     data: PrimitiveBuilderData,
     object_to_world: Matrix,
-    casts_shadow: bool,
 }
 
 #[derive(Debug)]
 enum PrimitiveBuilderData {
-    Shape(Shape, MaterialHandle),
+    Shape(Shape, MaterialHandle, bool),
     Instance(PrototypeHandle),
 }
 
 impl PrimitiveBuilder {
     pub fn shape(shape: Shape, material: MaterialHandle) -> PrimitiveBuilder {
         PrimitiveBuilder {
-            data: PrimitiveBuilderData::Shape(shape, material),
+            data: PrimitiveBuilderData::Shape(shape, material, true),
             object_to_world: Matrix::identity(),
-            casts_shadow: true,
+        }
+    }
+
+    pub fn shadowless_shape(shape: Shape, material: MaterialHandle) -> PrimitiveBuilder {
+        PrimitiveBuilder {
+            data: PrimitiveBuilderData::Shape(shape, material, false),
+            object_to_world: Matrix::identity(),
         }
     }
 
@@ -165,7 +184,6 @@ impl PrimitiveBuilder {
         PrimitiveBuilder {
             data: PrimitiveBuilderData::Instance(prototype),
             object_to_world: Matrix::identity(),
-            casts_shadow: true,
         }
     }
 
@@ -212,11 +230,6 @@ impl PrimitiveBuilder {
         self
     }
 
-    pub fn set_casts_shadow(mut self, casts_shadow: bool) -> PrimitiveBuilder {
-        self.casts_shadow = casts_shadow;
-        self
-    }
-
     fn finalize(self, prototypes: &[Primitive], materials: &[Material]) -> Primitive {
         let (data, aabb) = {
             let prototype_ptr = |id| {
@@ -229,9 +242,10 @@ impl PrimitiveBuilder {
             };
 
             match self.data {
-                PrimitiveBuilderData::Shape(shape, MaterialHandle(id)) => {
-                    (PrimitiveData::Shape(shape, material_ptr(id)), shape.aabb())
-                }
+                PrimitiveBuilderData::Shape(shape, MaterialHandle(id), casts_shadow) => (
+                    PrimitiveData::Shape(shape, material_ptr(id), casts_shadow),
+                    shape.aabb(),
+                ),
                 PrimitiveBuilderData::Instance(PrototypeHandle(id)) => (
                     PrimitiveData::Instance(prototype_ptr(id)),
                     prototypes[id].aabb,
@@ -262,7 +276,6 @@ impl PrimitiveBuilder {
             aabb: transformed_aabb,
             object_to_world_transpose: object_to_world_transpose,
             world_to_object: world_to_object,
-            casts_shadow: self.casts_shadow,
         }
     }
 }
@@ -273,33 +286,43 @@ struct Primitive {
     aabb: AABB,
     object_to_world_transpose: Matrix,
     world_to_object: Matrix,
-    casts_shadow: bool,
 }
 
 #[derive(Clone)]
 enum PrimitiveData {
-    Shape(Shape, *const Material),
+    Shape(Shape, *const Material, bool),
     Instance(*const Primitive),
 }
 
-impl BVHPrimitive<SurfaceInteraction> for Primitive {
+impl BVHPrimitive<SurfaceInteraction, RayContext> for Primitive {
     fn aabb(&self) -> AABB {
         self.aabb
     }
 
-    fn intersect_first(&self, ray: Ray, max_time: Float) -> Option<SurfaceInteraction> {
+    fn intersect_first(
+        &self,
+        ray: Ray,
+        max_time: Float,
+        context: RayContext,
+    ) -> Option<SurfaceInteraction> {
         let transformed_ray = self.world_to_object.transform_ray(ray);
 
         let interaction = match self.data {
-            PrimitiveData::Shape(shape, material) => shape
-                .intersect_first(transformed_ray, max_time)
-                .map(|intersection| SurfaceInteraction {
-                    time: intersection.time,
-                    normal: intersection.normal,
-                    material: material,
-                }),
+            PrimitiveData::Shape(shape, material, casts_shadow) => {
+                if context.shadow && !casts_shadow {
+                    None
+                } else {
+                    shape
+                        .intersect_first(transformed_ray, max_time)
+                        .map(|intersection| SurfaceInteraction {
+                            time: intersection.time,
+                            normal: intersection.normal,
+                            material: material,
+                        })
+                }
+            }
             PrimitiveData::Instance(primitive) => unsafe {
-                (*primitive).intersect_first(transformed_ray, max_time)
+                (*primitive).intersect_first(transformed_ray, max_time, context)
             },
         };
 
@@ -315,6 +338,23 @@ impl BVHPrimitive<SurfaceInteraction> for Primitive {
                 material: interaction.material,
             }
         })
+    }
+
+    fn intersect_pred(&self, ray: Ray, max_time: Float, context: RayContext) -> bool {
+        let transformed_ray = self.world_to_object.transform_ray(ray);
+
+        match self.data {
+            PrimitiveData::Shape(shape, _, casts_shadow) => {
+                if context.shadow && !casts_shadow {
+                    false
+                } else {
+                    shape.intersect_pred(transformed_ray, max_time)
+                }
+            }
+            PrimitiveData::Instance(primitive) => unsafe {
+                (*primitive).intersect_pred(transformed_ray, max_time, context)
+            },
+        }
     }
 }
 
@@ -360,6 +400,16 @@ struct Lighting {
 impl Light {
     pub fn point_light(position: Tuple3, intensity: Color) -> Light {
         Light(LightData::PointLight(position, intensity))
+    }
+
+    fn occluded(&self, world: &World, point: Tuple3) -> bool {
+        match self.0 {
+            LightData::PointLight(position, _) => {
+                let velocity = position - point;
+                let ray = Ray::new(point + velocity * 1e-3, velocity);
+                world.cast_shadow_ray(ray, 1.0)
+            }
+        }
     }
 
     fn lighting(&self, point: Tuple3, normal: Tuple3, eye: Tuple3) -> Lighting {

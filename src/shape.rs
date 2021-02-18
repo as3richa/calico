@@ -33,17 +33,29 @@ impl Shape {
 
     pub fn intersect_first(self, ray: Ray, max_time: Float) -> Option<ShapeIntersection> {
         match self {
-            Shape::Sphere => Shape::intersect_unit_sphere(ray, max_time),
+            Shape::Sphere => Shape::intersect_unit_sphere(ray, max_time).map(|time| {
+                let point = ray.at(time);
+                ShapeIntersection {
+                    time: time,
+                    normal: point.normalize(),
+                }
+            }),
         }
     }
 
-    pub fn intersect_unit_sphere(ray: Ray, max_time: Float) -> Option<ShapeIntersection> {
+    pub fn intersect_pred(self, ray: Ray, max_time: Float) -> bool {
+        match self {
+            Shape::Sphere => Shape::intersect_unit_sphere(ray, max_time).is_some(),
+        }
+    }
+
+    pub fn intersect_unit_sphere(ray: Ray, max_time: Float) -> Option<Float> {
         let oo = ray.origin.dot(ray.origin);
         let ov = ray.origin.dot(ray.velocity);
         let vv = ray.velocity.dot(ray.velocity);
         let radicand = ov * ov - vv * (oo - 1.0);
 
-        let time = if radicand < 0.0 {
+        if radicand < 0.0 {
             None
         } else {
             let radical = Float::sqrt(radicand);
@@ -63,14 +75,6 @@ impl Shape {
             } else {
                 None
             }
-        };
-
-        time.map(|time| {
-            let point = ray.at(time);
-            ShapeIntersection {
-                time: time,
-                normal: point.normalize(),
-            }
-        })
+        }
     }
 }

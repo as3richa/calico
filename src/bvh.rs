@@ -4,15 +4,17 @@ use crate::Float;
 use std::marker::PhantomData;
 use std::ops::Range;
 
-pub struct BVH<P: Primitive<I>, I: Intersection> {
+pub struct BVH<P: Primitive<I, C>, I: Intersection, C: Copy> {
     primitives: Vec<P>,
     nodes: Vec<Node>,
     intersection: PhantomData<I>,
+    context: PhantomData<C>,
 }
 
-pub trait Primitive<I: Intersection>: Clone {
+pub trait Primitive<I: Intersection, C>: Clone {
     fn aabb(&self) -> AABB;
-    fn intersect_first(&self, ray: Ray, max_time: Float) -> Option<I>;
+    fn intersect_first(&self, ray: Ray, max_time: Float, context: C) -> Option<I>;
+    fn intersect_pred(&self, ray: Ray, max_time: Float, context: C) -> bool;
 }
 
 pub trait Intersection {
@@ -80,19 +82,20 @@ impl Info {
     }
 }
 
-struct Builder<'a, P: Primitive<I>, I: Intersection> {
+struct Builder<'a, P: Primitive<I, C>, I: Intersection, C: Copy> {
     primitives: &'a [P],
     info: Vec<Info>,
     reordered: Vec<P>,
     nodes: Vec<Node>,
     intersection: PhantomData<I>,
+    context: PhantomData<C>,
 }
 
-impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
+impl<'a, P: Primitive<I, C>, I: Intersection, C: Copy> Builder<'a, P, I, C> {
     const TRAVERSAL_COST: Float = 0.125;
     const INTERSECTION_COST: Float = 1.0;
 
-    fn build(primitives: &[P], max_leaf_size: usize) -> BVH<P, I> {
+    fn build(primitives: &[P], max_leaf_size: usize) -> BVH<P, I, C> {
         if primitives.is_empty() {
             let root = Node::Leaf {
                 aabb: AABB::empty(),
@@ -103,6 +106,7 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
                 primitives: vec![],
                 nodes: vec![root],
                 intersection: PhantomData,
+                context: PhantomData,
             };
         }
 
@@ -131,6 +135,7 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
             reordered: reordered,
             nodes: nodes,
             intersection: PhantomData,
+            context: PhantomData,
         }
     }
 
@@ -180,7 +185,7 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
         id
     }
 
-    fn finalize(self) -> BVH<P, I> {
+    fn finalize(self) -> BVH<P, I, C> {
         let len = self.primitives.len();
         debug_assert!(len > 0);
 
@@ -194,6 +199,7 @@ impl<'a, P: Primitive<I>, I: Intersection> Builder<'a, P, I> {
             primitives: self.reordered,
             nodes: nodes,
             intersection: PhantomData,
+            context: PhantomData,
         }
     }
 
@@ -353,12 +359,12 @@ fn aabb_ray_robust_intersect(
     enters <= exits * 1.00000024
 }
 
-impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
-    pub fn new(primitives: &[P]) -> BVH<P, I> {
+impl<P: Primitive<I, C>, I: Intersection, C: Copy> BVH<P, I, C> {
+    pub fn new(primitives: &[P]) -> Self {
         Builder::build(primitives, 8)
     }
 
-    pub fn intersect_first(&self, ray: Ray, mut max_time: Float) -> Option<I> {
+    pub fn intersect_first(&self, ray: Ray, mut max_time: Float, context: C) -> Option<I> {
         let mut stack = Vec::with_capacity(64);
         stack.push(0);
 
@@ -385,13 +391,13 @@ impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
                         right,
                     } => {
                         let left = id + 1;
-                        let children = if ray.velocity[*axis] >= 0.0 {
-                            [left, *right]
+                        let (next, deferred) = if inv_velocity[*axis] >= 0.0 {
+                            (left, *right)
                         } else {
-                            [*right, left]
+                            (*right, left)
                         };
-                        id = children[0];
-                        stack.push(children[1]);
+                        id = next;
+                        stack.push(deferred);
                     }
 
                     Node::Leaf { aabb: _, range } => {
@@ -405,12 +411,11 @@ impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
                                 continue;
                             }
 
-                            if let Some(intersection) = primitive.intersect_first(ray, max_time) {
-                                let time = intersection.time();
-                                if time < max_time {
-                                    first = Some(intersection);
-                                    max_time = time;
-                                }
+                            if let Some(intersection) =
+                                primitive.intersect_first(ray, max_time, context)
+                            {
+                                max_time = intersection.time();
+                                first = Some(intersection);
                             }
                         }
                         break;
@@ -420,5 +425,53 @@ impl<P: Primitive<I>, I: Intersection> BVH<P, I> {
         }
 
         first
+    }
+
+    pub fn intersect_pred(&self, ray: Ray, max_time: Float, context: C) -> bool {
+        let mut stack = Vec::with_capacity(64);
+        stack.push(0);
+
+        let inv_velocity = Tuple3::new([
+            1.0 / ray.velocity.x(),
+            1.0 / ray.velocity.y(),
+            1.0 / ray.velocity.z(),
+        ]);
+
+        while let Some(mut id) = stack.pop() {
+            loop {
+                let node = &self.nodes[id];
+
+                if !aabb_ray_robust_intersect(node.aabb(), ray.origin, inv_velocity, max_time) {
+                    break;
+                }
+
+                match node {
+                    Node::Branch {
+                        aabb: _,
+                        axis,
+                        right,
+                    } => {
+                        let left = id + 1;
+                        let (next, deferred) = if inv_velocity[*axis] >= 0.0 {
+                            (left, *right)
+                        } else {
+                            (*right, left)
+                        };
+                        id = next;
+                        stack.push(deferred);
+                    }
+                    Node::Leaf { aabb: _, range } => {
+                        for primitive in &self.primitives[range.clone()] {
+                            if primitive.intersect_pred(ray, max_time, context) {
+                                return true;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
