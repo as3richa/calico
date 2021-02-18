@@ -124,6 +124,13 @@ impl Matrix {
         }
     }
 
+    pub fn mul_transpose_tuple(&self, rhs: Tuple) -> Tuple {
+        Tuple::from_array(self[0]) * rhs.x
+            + Tuple::from_array(self[1]) * rhs.y
+            + Tuple::from_array(self[2]) * rhs.z
+            + Tuple::from_array(self[3]) * rhs.w
+    }
+
     pub fn determinant(&self) -> Float {
         self[0][0] * self.cofactor(0, 0)
             + self[0][1] * self.cofactor(0, 1)
@@ -131,7 +138,6 @@ impl Matrix {
             + self[0][3] * self.cofactor(0, 3)
     }
 
-    // FIXME: inverse?
     pub fn invert(&mut self) -> bool {
         match self.inverse() {
             Some(m) => {

@@ -169,32 +169,52 @@ impl PrimitiveBuilder {
         }
     }
 
-    pub fn translate(&mut self, x: Float, y: Float, z: Float) {
+    pub fn translate(mut self, x: Float, y: Float, z: Float) -> PrimitiveBuilder {
         self.object_to_world.translate(x, y, z);
+        self
     }
 
-    pub fn rotate_x(&mut self, x: Float) {
+    pub fn rotate_x(mut self, x: Float) -> PrimitiveBuilder {
         self.object_to_world.rotate_x(x);
+        self
     }
 
-    pub fn rotate_y(&mut self, y: Float) {
+    pub fn rotate_y(mut self, y: Float) -> PrimitiveBuilder {
         self.object_to_world.rotate_y(y);
+        self
     }
 
-    pub fn rotate_z(&mut self, z: Float) {
+    pub fn rotate_z(mut self, z: Float) -> PrimitiveBuilder {
         self.object_to_world.rotate_z(z);
+        self
     }
 
-    pub fn scale(&mut self, x: Float, y: Float, z: Float) {
+    pub fn scale(mut self, x: Float, y: Float, z: Float) -> PrimitiveBuilder {
         self.object_to_world.scale(x, y, z);
+        self
     }
 
-    pub fn shear(&mut self, xy: Float, xz: Float, yx: Float, yz: Float, zx: Float, zy: Float) {
+    pub fn shear(
+        mut self,
+        xy: Float,
+        xz: Float,
+        yx: Float,
+        yz: Float,
+        zx: Float,
+        zy: Float,
+    ) -> PrimitiveBuilder {
         self.object_to_world.shear(xy, xz, yx, yz, zx, zy);
+        self
     }
 
-    pub fn set_casts_shadow(&mut self, casts_shadow: bool) {
+    pub fn set_casts_shadow(mut self, casts_shadow: bool) -> PrimitiveBuilder {
         self.casts_shadow = casts_shadow;
+        self
+    }
+
+    pub fn set_transform(mut self, object_to_world: Matrix) -> PrimitiveBuilder {
+        self.object_to_world = object_to_world;
+        self
     }
 
     fn finalize(self, prototypes: &[Primitive], materials: &[Material]) -> Primitive {
@@ -284,12 +304,14 @@ impl BVHPrimitive<SurfaceInteraction> for Primitive {
         };
 
         interaction.map(|interaction| {
-            let mut foo = self.world_to_object.clone();
-            foo.transpose();
-            let transformed_normal = &foo * interaction.normal.as_vector();
+            let transformed_normal = self
+                .world_to_object
+                .mul_transpose_tuple(interaction.normal.as_vector())
+                .as_tuple3();
+
             SurfaceInteraction {
                 time: interaction.time,
-                normal: transformed_normal.as_tuple3(),
+                normal: transformed_normal,
                 material: interaction.material,
             }
         })

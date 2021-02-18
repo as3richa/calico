@@ -20,23 +20,23 @@ fn main() {
         index_of_refraction: 1.0,
     });
 
-    let mut floor = PrimitiveBuilder::shape(Shape::Sphere, m_floor);
-    floor.scale(10.0, 0.01, 10.0);
-    builder.object(floor);
+    builder.object(PrimitiveBuilder::shape(Shape::Sphere, m_floor).scale(10.0, 0.01, 10.0));
 
-    let mut left_wall = PrimitiveBuilder::shape(Shape::Sphere, m_floor);
-    left_wall.scale(10.0, 0.01, 10.0);
-    left_wall.rotate_x(3.1415 / 2.0);
-    left_wall.rotate_y(-3.1415 / 4.0);
-    left_wall.translate(0.0, 0.0, 5.0);
-    builder.object(left_wall);
+    builder.object(
+        PrimitiveBuilder::shape(Shape::Sphere, m_floor)
+            .scale(10.0, 0.01, 10.0)
+            .rotate_x(3.1415 / 2.0)
+            .rotate_y(-3.1415 / 4.0)
+            .translate(0.0, 0.0, 5.0),
+    );
 
-    let mut right_wall = PrimitiveBuilder::shape(Shape::Sphere, m_floor);
-    right_wall.scale(10.0, 0.01, 10.0);
-    right_wall.rotate_x(3.1415 / 2.0);
-    right_wall.rotate_y(3.1415 / 4.0);
-    right_wall.translate(0.0, 0.0, 5.0);
-    builder.object(right_wall);
+    builder.object(
+        PrimitiveBuilder::shape(Shape::Sphere, m_floor)
+            .scale(10.0, 0.01, 10.0)
+            .rotate_x(3.1415 / 2.0)
+            .rotate_y(3.1415 / 4.0)
+            .translate(0.0, 0.0, 5.0),
+    );
 
     let m_middle = builder.material(Material {
         color: Color::new(0.1, 1.0, 0.5),
@@ -49,9 +49,7 @@ fn main() {
         index_of_refraction: 1.0,
     });
 
-    let mut middle = PrimitiveBuilder::shape(Shape::Sphere, m_middle);
-    middle.translate(-0.5, 1.0, 0.5);
-    builder.object(middle);
+    builder.object(PrimitiveBuilder::shape(Shape::Sphere, m_middle).translate(-0.5, 1.0, 0.5));
 
     let m_right = builder.material(Material {
         color: Color::new(0.5, 1.0, 0.1),
@@ -64,10 +62,11 @@ fn main() {
         index_of_refraction: 1.0,
     });
 
-    let mut right = PrimitiveBuilder::shape(Shape::Sphere, m_right);
-    right.scale(0.5, 0.5, 0.5);
-    right.translate(1.5, 0.5, -0.5);
-    builder.object(right);
+    builder.object(
+        PrimitiveBuilder::shape(Shape::Sphere, m_right)
+            .scale(0.5, 0.5, 0.5)
+            .translate(1.5, 0.5, -0.5),
+    );
 
     let m_left = builder.material(Material {
         color: Color::new(1.0, 0.8, 0.1),
@@ -80,10 +79,11 @@ fn main() {
         index_of_refraction: 1.0,
     });
 
-    let mut left = PrimitiveBuilder::shape(Shape::Sphere, m_left);
-    left.scale(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0);
-    left.translate(-1.5, 1.0 / 3.0, -0.75);
-    builder.object(left);
+    builder.object(
+        PrimitiveBuilder::shape(Shape::Sphere, m_left)
+            .scale(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
+            .translate(-1.5, 1.0 / 3.0, -0.75),
+    );
 
     builder.light(Light::PointLight(
         Tuple3::new([-10.0, 10.0, -10.0]),

@@ -6,6 +6,7 @@ use crate::eq_approx;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Tuple {
+    // FIXME: array representation
     pub x: Float,
     pub y: Float,
     pub z: Float,
@@ -20,6 +21,10 @@ impl Tuple {
             z: z,
             w: w,
         }
+    }
+
+    pub fn from_array(v: [Float; 4]) -> Tuple {
+        Tuple::new(v[0], v[1], v[2], v[3])
     }
 
     pub fn point(x: Float, y: Float, z: Float) -> Tuple {
