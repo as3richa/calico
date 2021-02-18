@@ -279,7 +279,7 @@ impl ops::Index<usize> for Tuple3 {
     }
 }
 
-#[derive(Clone, Copy)]
+/*#[derive(Clone, Copy)]
 pub struct Tuple2 {
     x: Float,
     y: Float,
@@ -289,7 +289,7 @@ impl Tuple2 {
     pub fn new(x: Float, y: Float) -> Tuple2 {
         Tuple2 { x: x, y: y }
     }
-}
+}*/
 
 #[cfg(test)]
 pub mod tests {

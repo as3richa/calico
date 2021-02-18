@@ -47,7 +47,7 @@ impl WorldBuilder {
         self.lights.push(light);
     }
 
-    pub fn background(&mut self, background: Color) {
+    pub fn set_background(&mut self, background: Color) {
         self.background = background;
     }
 
@@ -66,20 +66,20 @@ impl WorldBuilder {
 
         World {
             bvh: BVH::new(&objects),
-            prototypes: prototypes,
-            materials: self.materials,
             lights: self.lights,
             background: self.background,
+            _prototypes: prototypes,
+            _materials: self.materials,
         }
     }
 }
 
 pub struct World {
     bvh: BVH<Primitive, SurfaceInteraction>,
-    prototypes: Vec<Primitive>,
-    materials: Vec<Material>,
     lights: Vec<Light>,
     background: Color,
+    _prototypes: Vec<Primitive>,
+    _materials: Vec<Material>,
 }
 
 impl World {
@@ -149,7 +149,7 @@ pub struct PrimitiveBuilder {
 #[derive(Debug)]
 enum PrimitiveBuilderData {
     Shape(Shape, MaterialHandle),
-    Transformed(PrototypeHandle),
+    Instance(PrototypeHandle),
 }
 
 impl PrimitiveBuilder {
@@ -161,9 +161,9 @@ impl PrimitiveBuilder {
         }
     }
 
-    pub fn transformed(prototype: PrototypeHandle) -> PrimitiveBuilder {
+    pub fn instance(prototype: PrototypeHandle) -> PrimitiveBuilder {
         PrimitiveBuilder {
-            data: PrimitiveBuilderData::Transformed(prototype),
+            data: PrimitiveBuilderData::Instance(prototype),
             object_to_world: Matrix::identity(),
             casts_shadow: true,
         }
@@ -207,13 +207,13 @@ impl PrimitiveBuilder {
         self
     }
 
-    pub fn set_casts_shadow(mut self, casts_shadow: bool) -> PrimitiveBuilder {
-        self.casts_shadow = casts_shadow;
+    pub fn set_transform(mut self, object_to_world: Matrix) -> PrimitiveBuilder {
+        self.object_to_world = object_to_world;
         self
     }
 
-    pub fn set_transform(mut self, object_to_world: Matrix) -> PrimitiveBuilder {
-        self.object_to_world = object_to_world;
+    pub fn set_casts_shadow(mut self, casts_shadow: bool) -> PrimitiveBuilder {
+        self.casts_shadow = casts_shadow;
         self
     }
 
@@ -232,8 +232,8 @@ impl PrimitiveBuilder {
                 PrimitiveBuilderData::Shape(shape, MaterialHandle(id)) => {
                     (PrimitiveData::Shape(shape, material_ptr(id)), shape.aabb())
                 }
-                PrimitiveBuilderData::Transformed(PrototypeHandle(id)) => (
-                    PrimitiveData::Transformed(prototype_ptr(id)),
+                PrimitiveBuilderData::Instance(PrototypeHandle(id)) => (
+                    PrimitiveData::Instance(prototype_ptr(id)),
                     prototypes[id].aabb,
                 ),
             }
@@ -279,7 +279,7 @@ struct Primitive {
 #[derive(Clone)]
 enum PrimitiveData {
     Shape(Shape, *const Material),
-    Transformed(*const Primitive),
+    Instance(*const Primitive),
 }
 
 impl BVHPrimitive<SurfaceInteraction> for Primitive {
@@ -298,7 +298,7 @@ impl BVHPrimitive<SurfaceInteraction> for Primitive {
                     normal: intersection.normal,
                     material: material,
                 }),
-            PrimitiveData::Transformed(primitive) => unsafe {
+            PrimitiveData::Instance(primitive) => unsafe {
                 (*primitive).intersect_first(transformed_ray, max_time)
             },
         };
@@ -332,7 +332,7 @@ pub struct Material {
     pub index_of_refraction: Float,
 }
 
-pub struct SurfaceInteraction {
+struct SurfaceInteraction {
     pub time: Float,
     pub normal: Tuple3,
     pub material: *const Material,
@@ -344,22 +344,27 @@ impl Intersection for SurfaceInteraction {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum Light {
+pub struct Light(LightData);
+
+enum LightData {
     PointLight(Tuple3, Color),
     // spotlight, area light
 }
 
-pub struct Lighting {
-    pub color: Color,
-    pub diffuse: Float,
-    pub specular: Float,
+struct Lighting {
+    color: Color,
+    diffuse: Float,
+    specular: Float,
 }
 
 impl Light {
-    pub fn lighting(self, point: Tuple3, normal: Tuple3, eye: Tuple3) -> Lighting {
-        match self {
-            Light::PointLight(position, color) => {
+    pub fn point_light(position: Tuple3, intensity: Color) -> Light {
+        Light(LightData::PointLight(position, intensity))
+    }
+
+    fn lighting(&self, point: Tuple3, normal: Tuple3, eye: Tuple3) -> Lighting {
+        match self.0 {
+            LightData::PointLight(position, color) => {
                 let light = (position - point).normalize();
                 let reflected = normal * light.dot(normal) * 2.0 - light;
 
@@ -391,6 +396,11 @@ impl Camera {
 
     pub fn set_field_of_view(mut self, field_of_view: Float) -> Camera {
         self.field_of_view = field_of_view;
+        self
+    }
+
+    pub fn set_focal_distance(mut self, focal_distance: Float) -> Camera {
+        self.focal_distance = focal_distance;
         self
     }
 

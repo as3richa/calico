@@ -84,14 +84,9 @@ fn main() {
             .translate(-1.5, 1.0 / 3.0, -0.75),
     );
 
-    builder.light(Light::PointLight(
+    builder.light(Light::point_light(
         Tuple3::new([-10.0, 10.0, -10.0]),
         Color::new(1.0, 1.0, 1.0),
-    ));
-
-    builder.light(Light::PointLight(
-        Tuple3::new([10.0, 10.0, -10.0]),
-        Color::new(1.0, 1.0,1.0),
     ));
 
     let world = builder.finalize();

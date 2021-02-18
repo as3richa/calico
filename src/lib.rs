@@ -25,7 +25,6 @@ mod canvas;
 mod color;
 mod matrix;
 pub mod shape;
-mod triangle_mesh;
 pub mod tuple;
 pub mod world;
 
