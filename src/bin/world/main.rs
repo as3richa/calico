@@ -19,10 +19,10 @@ fn main() {
         index_of_refraction: 1.0,
     });
 
-    builder.object(PrimitiveBuilder::shape(Shape::Sphere, m_floor).scale(10.0, 0.01, 10.0));
+    builder.object(PrimitiveBuilder::shape(Shape::unit_sphere(), m_floor).scale(10.0, 0.01, 10.0));
 
     builder.object(
-        PrimitiveBuilder::shape(Shape::Sphere, m_floor)
+        PrimitiveBuilder::shape(Shape::unit_sphere(), m_floor)
             .scale(10.0, 0.01, 10.0)
             .rotate_x(3.1415 / 2.0)
             .rotate_y(-3.1415 / 4.0)
@@ -30,7 +30,7 @@ fn main() {
     );
 
     builder.object(
-        PrimitiveBuilder::shape(Shape::Sphere, m_floor)
+        PrimitiveBuilder::shape(Shape::unit_sphere(), m_floor)
             .scale(10.0, 0.01, 10.0)
             .rotate_x(3.1415 / 2.0)
             .rotate_y(3.1415 / 4.0)
@@ -48,7 +48,8 @@ fn main() {
         index_of_refraction: 1.0,
     });
 
-    builder.object(PrimitiveBuilder::shape(Shape::Sphere, m_middle).translate(-0.5, 1.0, 0.5));
+    builder
+        .object(PrimitiveBuilder::shape(Shape::unit_sphere(), m_middle).translate(-0.5, 1.0, 0.5));
 
     let m_right = builder.material(Material {
         color: Color::new(0.5, 1.0, 0.1),
@@ -62,7 +63,7 @@ fn main() {
     });
 
     builder.object(
-        PrimitiveBuilder::shape(Shape::Sphere, m_right)
+        PrimitiveBuilder::shape(Shape::unit_sphere(), m_right)
             .scale(0.5, 0.5, 0.5)
             .translate(1.5, 0.5, -0.5),
     );
@@ -79,10 +80,30 @@ fn main() {
     });
 
     builder.object(
-        PrimitiveBuilder::shape(Shape::Sphere, m_left)
+        PrimitiveBuilder::shape(Shape::unit_sphere(), m_left)
             .scale(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
             .translate(-1.5, 1.0 / 3.0, -0.75),
     );
+
+    let m_triangle = builder.material(Material {
+        color: Color::new(1.0, 0.0, 0.0),
+        diffuse: 0.7,
+        ambient: 0.1,
+        specular: 0.3,
+        shininess: 200.0,
+        reflectiveness: 0.0,
+        transparency: 0.0,
+        index_of_refraction: 1.0,
+    });
+
+    builder.object(PrimitiveBuilder::shape(
+        Shape::Triangle([
+            Tuple3::new([0.0, 1.0, -2.0]),
+            Tuple3::new([1.0, 2.0, -2.0]),
+            Tuple3::new([-0.75, 1.5, -1.0]),
+        ]),
+        m_triangle,
+    ));
 
     for i in 0..1 {
         for j in 0..1 {

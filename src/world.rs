@@ -3,7 +3,7 @@ use crate::bvh::Ray;
 use crate::bvh::{Intersection, Primitive as BVHPrimitive, BVH};
 use crate::color::Color;
 use crate::matrix::Matrix;
-use crate::shape::Shape;
+use crate::shape::{Shape, ShapeBounds};
 use crate::tuple::{Tuple, Tuple3};
 use crate::Canvas;
 use crate::{consts, Float};
@@ -227,37 +227,55 @@ impl PrimitiveBuilder {
     }
 
     fn finalize(self, prototypes: &[Primitive], materials: &[Material]) -> Primitive {
-        let (data, aabb) = {
+        let data = {
             let prototype_ptr = |id| {
                 assert!(id < prototypes.len());
                 unsafe { prototypes.as_ptr().add(id) }
             };
+
             let material_ptr = |id| {
                 assert!(id < materials.len());
                 unsafe { materials.as_ptr().add(id) }
             };
 
             match self.data {
-                PrimitiveBuilderData::Shape(shape, MaterialHandle(id), casts_shadow) => (
-                    PrimitiveData::Shape(shape, material_ptr(id), casts_shadow),
-                    shape.aabb(),
-                ),
-                PrimitiveBuilderData::Instance(PrototypeHandle(id)) => (
-                    PrimitiveData::Instance(prototype_ptr(id)),
-                    prototypes[id].aabb,
-                ),
+                PrimitiveBuilderData::Shape(shape, MaterialHandle(id), casts_shadow) => {
+                    PrimitiveData::Shape(shape, material_ptr(id), casts_shadow)
+                }
+                PrimitiveBuilderData::Instance(PrototypeHandle(id)) => {
+                    PrimitiveData::Instance(prototype_ptr(id))
+                }
             }
         };
 
-        let mut transformed_aabb = AABB::empty();
+        let aabb = {
+            let transform_aabb = |aabb: AABB| -> AABB {
+                let mut transformed = AABB::empty();
+                for i in 0..8 {
+                    let x = (if i & 1 == 0 { aabb.min } else { aabb.max })[0];
+                    let y = (if i & 2 == 0 { aabb.min } else { aabb.max })[1];
+                    let z = (if i & 4 == 0 { aabb.min } else { aabb.max })[2];
+                    let u = &self.object_to_world * Tuple::point(x, y, z);
+                    transformed = transformed.add(Tuple3::new([u.x, u.y, u.z]));
+                }
+                transformed
+            };
 
-        for i in 0..8 {
-            let x = (if i & 1 == 0 { aabb.min } else { aabb.max })[0];
-            let y = (if i & 2 == 0 { aabb.min } else { aabb.max })[1];
-            let z = (if i & 4 == 0 { aabb.min } else { aabb.max })[2];
-            let u = &self.object_to_world * Tuple::point(x, y, z);
-            transformed_aabb = transformed_aabb.add(Tuple3::new([u.x, u.y, u.z]));
-        }
+            match data {
+                PrimitiveData::Shape(shape, _, _) => match shape.bounds() {
+                    ShapeBounds::AABB(aabb) => transform_aabb(aabb),
+                    ShapeBounds::Triangle(vertices) => {
+                        let mut transformed = AABB::empty();
+                        for u in vertices.iter() {
+                            let v = &self.object_to_world * u.as_point();
+                            transformed = transformed.add(v.as_tuple3());
+                        }
+                        transformed
+                    }
+                },
+                PrimitiveData::Instance(primitive) => unsafe { transform_aabb((*primitive).aabb) },
+            }
+        };
 
         let world_to_object = self
             .object_to_world
@@ -269,7 +287,7 @@ impl PrimitiveBuilder {
 
         Primitive {
             data: data,
-            aabb: transformed_aabb,
+            aabb: aabb,
             object_to_world_transpose: object_to_world_transpose,
             world_to_object: world_to_object,
         }
