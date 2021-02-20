@@ -89,22 +89,26 @@ pub struct World {
 
 impl World {
     pub fn cast_ray(&self, ray: Ray) -> Color {
+        self.cast_ray_recursive(ray, 0)
+    }
+
+    fn cast_ray_recursive(&self, ray: Ray, depth: usize) -> Color {
         self.bvh
             .intersect_first(ray, Float::INFINITY, RayContext { shadow: false })
-            .map(|interaction| self.lighting(ray, interaction))
+            .map(|mut interaction| {
+                interaction.normal = interaction.normal.normalize();
+                self.lighting(ray, interaction) + self.reflection(ray, interaction, depth)
+            })
             .unwrap_or(self.background)
     }
 
     fn lighting(&self, ray: Ray, interaction: SurfaceInteraction) -> Color {
         let point = ray.at(interaction.time);
         let eye = (ray.origin - point).normalize();
-        let normal = {
-            let normal = interaction.normal.normalize();
-            if normal.dot(eye) < 0.0 {
-                -normal
-            } else {
-                normal
-            }
+        let normal = if interaction.normal.dot(eye) < 0.0 {
+            -interaction.normal
+        } else {
+            interaction.normal
         };
 
         let (color_m, ambient, diffuse_m, specular_m, shininess) = unsafe {
@@ -138,6 +142,31 @@ impl World {
             .iter()
             .map(lighting_for_light)
             .fold(Color::new(0.0, 0.0, 0.0), |u, v| u + v)
+    }
+
+    fn reflection(&self, ray: Ray, interaction: SurfaceInteraction, depth: usize) -> Color {
+        if depth >= 2 {
+            return Color::new(0.0, 0.0, 0.0);
+        }
+
+        let reflectiveness = unsafe { (*interaction.material).reflectiveness };
+
+        if reflectiveness <= 0.0 {
+            return Color::new(0.0, 0.0, 0.0);
+        };
+
+        let reflected_ray = {
+            // FIXME: pass this into reflection and lighting
+            let origin = ray.at(interaction.time);
+            let reflected_velocity =
+                ray.velocity - interaction.normal * interaction.normal.dot(ray.velocity) * 2.0;
+            Ray::new(
+                origin + reflected_velocity.normalize() * 1e-5,
+                reflected_velocity,
+            )
+        };
+
+        self.cast_ray_recursive(reflected_ray, depth + 1) * reflectiveness
     }
 
     fn cast_shadow_ray(&self, ray: Ray, max_time: Float) -> bool {
@@ -386,6 +415,7 @@ pub struct Material {
     pub index_of_refraction: Float,
 }
 
+#[derive(Clone, Copy)]
 struct SurfaceInteraction {
     pub time: Float,
     pub normal: Tuple3,

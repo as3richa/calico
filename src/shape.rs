@@ -28,8 +28,12 @@ pub enum ShapeBounds {
 }
 
 impl Shape {
-    pub fn unit_sphere() -> Shape {
-        Shape::Sphere(1.0)
+    pub fn sphere(radius: Float) -> Shape {
+        Shape::Sphere(radius)
+    }
+
+    pub fn triangle(p: Tuple3, q: Tuple3, r: Tuple3) -> Shape {
+        Shape::Triangle([p, q, r])
     }
 
     pub fn bounds(self) -> ShapeBounds {

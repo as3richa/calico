@@ -162,6 +162,11 @@ impl Tuple3 {
         Tuple3(v)
     }
 
+    // FIXME: disgusting
+    pub fn new2(x: Float, y: Float, z: Float) -> Tuple3 {
+        Tuple3([x, y, z])
+    }
+
     pub fn x(self) -> Float {
         self[0]
     }
