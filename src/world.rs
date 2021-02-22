@@ -89,17 +89,112 @@ pub struct World {
 
 impl World {
     pub fn cast_ray(&self, ray: Ray) -> Color {
-        self.cast_ray_recursive(ray, 0)
+        // FIXME: compute initial containment stack for ray.origin
+        self.cast_ray_recursive(ray, 0, vec![])
     }
 
-    fn cast_ray_recursive(&self, ray: Ray, depth: usize) -> Color {
-        self.bvh
-            .intersect_first(ray, Float::INFINITY, RayContext { shadow: false })
-            .map(|mut interaction| {
-                interaction.normal = interaction.normal.normalize();
-                self.lighting(ray, interaction) + self.reflection(ray, interaction, depth)
-            })
-            .unwrap_or(self.background)
+    fn cast_ray_recursive(
+        &self,
+        ray: Ray,
+        depth: usize,
+        mut containment: Vec<(usize, *const Material)>,
+    ) -> Color {
+        let max = containment.iter().fold((0, 1.0), |x, y| {
+            if y.0 >= x.0 {
+                (y.0, unsafe { (*y.1).refractive_index.unwrap_or(1.0) })
+            } else {
+                x
+            }
+        });
+
+        loop {
+            let interaction =
+                self.bvh
+                    .intersect_first(ray, Float::INFINITY, RayContext { shadow: false });
+
+            match interaction {
+                Some(mut interaction) => {
+                    interaction.normal = interaction.normal.normalize();
+
+                    let priority = unsafe { (*interaction.material).priority };
+
+                    let update_containment = |containment: &mut Vec<(usize, *const Material)>| {
+                        if ray.velocity.dot(interaction.normal) > 0.0 {
+                            let index = containment
+                                .iter()
+                                .position(|&x| x == (priority, interaction.material));
+                            if let Some(index) = index {
+                                containment.remove(index);
+                            }
+                            true
+                        } else {
+                            containment.push((priority, interaction.material));
+                            false
+                        }
+                    };
+
+                    if priority >= max.0 {
+                        let lighting = self.lighting(ray, interaction);
+                        let reflection =
+                            self.reflection(ray, interaction, depth, containment.clone());
+
+                        let (eta1, eta2) = if let Some(eta) =
+                            unsafe { (*interaction.material).refractive_index }
+                        {
+                            if update_containment(&mut containment) {
+                                (eta, max.1)
+                            } else {
+                                (max.1, eta)
+                            }
+                        } else {
+                            (1.0, 1.0)
+                        };
+
+                        let transmission =
+                            self.transmission(ray, interaction, eta1 / eta2, depth, containment);
+
+                        if unsafe {
+                            (*interaction.material).reflectiveness > 0.0
+                                && (*interaction.material).transparency > 0.0
+                        } {
+                            let schlick = || {
+                                let cos = if eta1 > eta2 {
+                                    let dot = interaction.normal.dot(ray.velocity);
+                                    let exiting = dot > 0.0;
+
+                                    let cos_theta = dot / ray.velocity.norm()
+                                        * if exiting { 1.0 } else { -1.0 };
+                                    let sin_theta_squared = 1.0 - cos_theta * cos_theta;
+                                    let sin_phi = Float::sqrt(sin_theta_squared) * eta1 / eta2;
+                                    if sin_phi.abs() > 1.0 {
+                                        return 1.0;
+                                    }
+                                    Float::sqrt(1.0 - sin_phi * sin_phi)
+                                } else {
+                                    ray.velocity.normalize().dot(interaction.normal).abs()
+                                };
+
+                                let r0 = ((eta1 - eta2) / (eta1 + eta2))
+                                    * ((eta1 - eta2) / (eta1 + eta2));
+
+                                r0 + (1.0 - r0) * Float::powf(1.0 - cos, 5.0)
+                            };
+
+                            println!("{:?}", schlick());
+
+                            return lighting
+                                + reflection * schlick()
+                                + transmission * (1.0 - schlick());
+                        } else {
+                            return lighting + reflection + transmission;
+                        }
+                    } else {
+                        update_containment(&mut containment);
+                    }
+                }
+                None => return self.background,
+            }
+        }
     }
 
     fn lighting(&self, ray: Ray, interaction: SurfaceInteraction) -> Color {
@@ -144,8 +239,14 @@ impl World {
             .fold(Color::new(0.0, 0.0, 0.0), |u, v| u + v)
     }
 
-    fn reflection(&self, ray: Ray, interaction: SurfaceInteraction, depth: usize) -> Color {
-        if depth >= 2 {
+    fn reflection(
+        &self,
+        ray: Ray,
+        interaction: SurfaceInteraction,
+        depth: usize,
+        containment: Vec<(usize, *const Material)>,
+    ) -> Color {
+        if depth >= 5 {
             return Color::new(0.0, 0.0, 0.0);
         }
 
@@ -153,7 +254,7 @@ impl World {
 
         if reflectiveness <= 0.0 {
             return Color::new(0.0, 0.0, 0.0);
-        };
+        }
 
         let reflected_ray = {
             // FIXME: pass this into reflection and lighting
@@ -161,17 +262,61 @@ impl World {
             let reflected_velocity =
                 ray.velocity - interaction.normal * interaction.normal.dot(ray.velocity) * 2.0;
             Ray::new(
+                // FIXME: here and elsewhere, bump the ray in a more principled way
                 origin + reflected_velocity.normalize() * 1e-5,
                 reflected_velocity,
             )
         };
 
-        self.cast_ray_recursive(reflected_ray, depth + 1) * reflectiveness
+        self.cast_ray_recursive(reflected_ray, depth + 1, containment) * reflectiveness
+    }
+
+    fn transmission(
+        &self,
+        ray: Ray,
+        interaction: SurfaceInteraction,
+        refractive_index: Float,
+        depth: usize,
+        containment: Vec<(usize, *const Material)>,
+    ) -> Color {
+        // FIXME: configurable recursive depth
+        if depth >= 5 {
+            return Color::new(0.0, 0.0, 0.0);
+        }
+
+        let transparency = unsafe { (*interaction.material).transparency };
+
+        if transparency <= 0.0 {
+            return Color::new(0.0, 0.0, 0.0);
+        }
+
+        let dot = interaction.normal.dot(ray.velocity);
+        let exiting = dot > 0.0;
+
+        let cos_theta = dot / ray.velocity.norm() * if exiting { 1.0 } else { -1.0 };
+        let sin_theta_squared = 1.0 - cos_theta * cos_theta;
+        let sin_phi = Float::sqrt(sin_theta_squared) * refractive_index;
+        let cos_phi = Float::sqrt(1.0 - sin_phi * sin_phi) * if exiting { 1.0 } else { -1.0 };
+
+        if sin_phi.abs() > 1.0 {
+            return Color::new(0.0, 0.0, 0.0); // t.i.r.
+        }
+
+        let u = (ray.velocity - interaction.normal * dot).normalize();
+        let velocity = interaction.normal * cos_phi + u * sin_phi;
+
+        let transmitted_ray = Ray::new(
+            // FIXME: here and elsewhere, bump the ray in a more principled way
+            ray.at(interaction.time) + velocity * 1e-3,
+            velocity,
+        );
+
+        self.cast_ray_recursive(transmitted_ray, depth + 1, containment) * transparency
     }
 
     fn cast_shadow_ray(&self, ray: Ray, max_time: Float) -> bool {
-        self.bvh
-            .intersect_pred(ray, max_time, RayContext { shadow: true })
+        let context = RayContext { shadow: true };
+        self.bvh.intersect_pred(ray, max_time, context)
     }
 }
 
@@ -186,28 +331,22 @@ pub struct PrimitiveBuilder {
 
 #[derive(Debug)]
 enum PrimitiveBuilderData {
-    Shape(Shape, MaterialHandle, bool),
+    Shape(Shape, MaterialHandle),
     Instance(PrototypeHandle),
 }
 
 impl PrimitiveBuilder {
     pub fn shape(shape: Shape, material: MaterialHandle) -> PrimitiveBuilder {
-        PrimitiveBuilder {
-            data: PrimitiveBuilderData::Shape(shape, material, true),
-            object_to_world: Matrix::identity(),
-        }
-    }
-
-    pub fn shadowless_shape(shape: Shape, material: MaterialHandle) -> PrimitiveBuilder {
-        PrimitiveBuilder {
-            data: PrimitiveBuilderData::Shape(shape, material, false),
-            object_to_world: Matrix::identity(),
-        }
+        PrimitiveBuilder::new(PrimitiveBuilderData::Shape(shape, material))
     }
 
     pub fn instance(prototype: PrototypeHandle) -> PrimitiveBuilder {
+        PrimitiveBuilder::new(PrimitiveBuilderData::Instance(prototype))
+    }
+
+    fn new(data: PrimitiveBuilderData) -> PrimitiveBuilder {
         PrimitiveBuilder {
-            data: PrimitiveBuilderData::Instance(prototype),
+            data: data,
             object_to_world: Matrix::identity(),
         }
     }
@@ -268,8 +407,8 @@ impl PrimitiveBuilder {
             };
 
             match self.data {
-                PrimitiveBuilderData::Shape(shape, MaterialHandle(id), casts_shadow) => {
-                    PrimitiveData::Shape(shape, material_ptr(id), casts_shadow)
+                PrimitiveBuilderData::Shape(shape, MaterialHandle(id)) => {
+                    PrimitiveData::Shape(shape, material_ptr(id))
                 }
                 PrimitiveBuilderData::Instance(PrototypeHandle(id)) => {
                     PrimitiveData::Instance(prototype_ptr(id))
@@ -291,7 +430,7 @@ impl PrimitiveBuilder {
             };
 
             match data {
-                PrimitiveData::Shape(shape, _, _) => match shape.bounds() {
+                PrimitiveData::Shape(shape, _) => match shape.bounds() {
                     ShapeBounds::AABB(aabb) => transform_aabb(aabb),
                     ShapeBounds::Triangle(vertices) => {
                         let mut transformed = AABB::empty();
@@ -333,7 +472,7 @@ struct Primitive {
 
 #[derive(Clone)]
 enum PrimitiveData {
-    Shape(Shape, *const Material, bool),
+    Shape(Shape, *const Material),
     Instance(*const Primitive),
 }
 
@@ -351,8 +490,10 @@ impl BVHPrimitive<SurfaceInteraction, RayContext> for Primitive {
         let transformed_ray = self.world_to_object.transform_ray(ray);
 
         let interaction = match self.data {
-            PrimitiveData::Shape(shape, material, casts_shadow) => {
-                if context.shadow && !casts_shadow {
+            PrimitiveData::Shape(shape, material) => {
+                // FIXME: consider hoisting casts_shadow back onto Shape to avoid dereferencing the material pointer on this path
+                let skip = unsafe { context.shadow && !(*material).casts_shadow };
+                if skip {
                     None
                 } else {
                     shape
@@ -387,12 +528,9 @@ impl BVHPrimitive<SurfaceInteraction, RayContext> for Primitive {
         let transformed_ray = self.world_to_object.transform_ray(ray);
 
         match self.data {
-            PrimitiveData::Shape(shape, _, casts_shadow) => {
-                if context.shadow && !casts_shadow {
-                    false
-                } else {
-                    shape.intersect_pred(transformed_ray, max_time)
-                }
+            PrimitiveData::Shape(shape, material) => {
+                let skip = unsafe { context.shadow && !(*material).casts_shadow };
+                !skip && shape.intersect_pred(transformed_ray, max_time)
             }
             PrimitiveData::Instance(primitive) => unsafe {
                 (*primitive).intersect_pred(transformed_ray, max_time, context)
@@ -412,7 +550,9 @@ pub struct Material {
     pub shininess: Float,
     pub reflectiveness: Float,
     pub transparency: Float,
-    pub index_of_refraction: Float,
+    pub refractive_index: Option<Float>,
+    pub priority: usize,
+    pub casts_shadow: bool,
 }
 
 #[derive(Clone, Copy)]
